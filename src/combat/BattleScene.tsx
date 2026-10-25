@@ -22,9 +22,9 @@ export type RuneFx = {
   decoyY: SharedValue<number>;
 };
 
-export type Actor =
-  | { kind: 'hero'; key: string; slot: Slot; pose: HeroPose; dx?: SharedValue<number> }
-  | { kind: 'foe'; key: string; slot: Slot; pose: FoePose; dx?: SharedValue<number> };
+// z overrides draw order (it defaults to the slot's lane), so a hero who dashes into another lane draws in it.
+type ActorBase = { key: string; slot: Slot; z?: number; dx?: SharedValue<number>; dy?: SharedValue<number> };
+export type Actor = (ActorBase & { kind: 'hero'; pose: HeroPose }) | (ActorBase & { kind: 'foe'; pose: FoePose });
 
 function runeGrid(decoy: boolean) {
   const g = new Grid(7, 7);
@@ -40,10 +40,10 @@ function ActorSprite({ actor, s }: { actor: Actor; s: number }) {
     [actor.kind, actor.pose, s],
   );
   const frame = actor.kind === 'hero' ? heroFrame(actor.slot) : foeFrame(actor.slot);
-  const dx = actor.dx;
+  const { dx, dy } = actor;
   const transform = useDerivedValue(
-    () => [{ translateX: Math.round(frame.x + (dx ? dx.value : 0)) * s }, { translateY: frame.y * s }],
-    [frame.x, frame.y, dx, s],
+    () => [{ translateX: Math.round(frame.x + (dx ? dx.value : 0)) * s }, { translateY: Math.round(frame.y + (dy ? dy.value : 0)) * s }],
+    [frame.x, frame.y, dx, dy, s],
   );
   return (
     <Group transform={transform}>
@@ -58,7 +58,7 @@ export function BattleScene({ field, actors, rune }: { field: Field; actors: Act
   const runePic = useMemo(() => gridPicture('rune', runeGrid(false), s), [s]);
   const decoyPic = useMemo(() => gridPicture('decoy', runeGrid(true), s), [s]);
   // Back lanes first, so nearer sprites overlap farther ones.
-  const sorted = useMemo(() => [...actors].sort((a, b) => a.slot.y - b.slot.y), [actors]);
+  const sorted = useMemo(() => [...actors].sort((a, b) => (a.z ?? a.slot.y) - (b.z ?? b.slot.y)), [actors]);
 
   // Hidden runes also park off-canvas, so nothing peeks out if a renderer ignores group opacity.
   const runeT = useDerivedValue(() =>

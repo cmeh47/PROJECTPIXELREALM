@@ -120,3 +120,12 @@ export function tameChance(hp: number, broken: boolean, treat: boolean) {
 }
 
 export const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+
+// Party allies. In live co-op each ally is a real player running their own runes on their phone;
+// in this prototype they are Echoes whose timing is rolled.
+export const ECHO_STRIKE = { damage: 7, brk: 9, hits: 2 };
+export function echoGrade(): Grade {
+  const r = Math.random();
+  return r < 0.45 ? 'perfect' : r < 0.85 ? 'good' : 'miss';
+}
+export const ECHO_DEFENSE = { parry: 0.4, dodge: 0.15 };
