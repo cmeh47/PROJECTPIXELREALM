@@ -42,7 +42,7 @@ If `npx expo install` fails behind a proxy, prefix it with `EXPO_OFFLINE=1`.
 
 ## Code map
 
-- `App.tsx` loads fonts and gesture/safe-area roots. `index.ts` loads CanvasKit first on web.
+- `App.tsx` loads fonts and gesture/safe-area roots. `src/boot/index.web.ts` loads CanvasKit before mounting on web; `src/boot/index.ts` is the phone entry.
 - `src/sprites/`: pixel grid, character layers (hero, Mossback Toadstool) and Skia picture rendering.
 - `src/combat/`: `rules.ts` (numbers), `anims.ts` (12 fps frame tables), `useCombatInput.ts` (UI-thread timing), `BattleScene.tsx` (Skia canvas), `BattleScreen.tsx` (the battle and menus).
 - `src/ui/pixel.tsx`: framed panels, pixel buttons, bars, chips and icons.
