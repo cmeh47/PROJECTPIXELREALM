@@ -61,16 +61,22 @@ const PANEL_H = 214;
 const HERO_NAMES = ['You', 'Mint Ranger', 'Gold Warden', 'Sky Mage'];
 const FOE_NAMES = ['Mossback Toadstool', 'Lilac Toadstool', 'Gilded Toadstool'];
 
-function newGame(full: boolean): Game {
+export type Encounter = { look: number; name: string };
+export type BattleResult = 'won' | 'lost' | 'tamed' | 'fled';
+
+function newGame(full: boolean, encounter?: Encounter): Game {
   const heroes = (full ? [0, 1, 2, 3] : [0]).map((i) => ({ name: HERO_NAMES[i], look: i, hp: HERO_MAX_HP, pose: null }));
   const foes = (full ? [0, 1, 2] : [0]).map((j) => ({ name: FOE_NAMES[j], look: j, hp: FOE_MAX_HP, brk: 0, broken: false, out: null, pose: null }));
+  if (encounter && !full) Object.assign(foes[0], encounter);
   return { heroes, foes };
 }
 
 const active = (g: Game) => g.foes.map((f, j) => (f.out ? -1 : j)).filter((j) => j >= 0);
 const standing = (g: Game) => g.heroes.map((h, i) => (h.hp > 0 ? i : -1)).filter((i) => i >= 0);
 
-export function BattleScreen() {
+// encounter: a fight started on the base map against one toadstool; onDone hands the result back.
+// Without an encounter it is the practice arena, with the SOLO / PARTY 4 toggle and onExit.
+export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encounter; onDone?: (r: BattleResult) => void; onExit?: () => void } = {}) {
   const insets = useSafeAreaInsets();
 
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
@@ -79,7 +85,7 @@ export function BattleScreen() {
   const fieldRef = useRef<Field | null>(field);
   fieldRef.current = field;
 
-  const game = useRef<Game>(newGame(false));
+  const game = useRef<Game>(newGame(false, encounter));
   const [, force] = useReducer((x: number) => x + 1, 0);
 
   const [phase, setPhase] = useState<Phase>('menu');
@@ -91,7 +97,7 @@ export function BattleScreen() {
   const [ap, setAp] = useState(AP_START);
   const [chain, setChain] = useState(0);
   const [hint, setHint] = useState('');
-  const [line, setLine] = useState('A Mossback Toadstool blocks the path. It grips its club and sways.');
+  const [line, setLine] = useState(`A ${encounter?.name ?? 'Mossback Toadstool'} blocks the path. It grips its club and sways.`);
   const [pops, setPops] = useState<Pop[]>([]);
   const [sel, setSel] = useState(0);
   const [treat, setTreat] = useState(false);
@@ -735,7 +741,7 @@ export function BattleScreen() {
         v.value = 0;
       });
       rune.visible.value = 0;
-      game.current = newGame(nextFull);
+      game.current = newGame(nextFull, encounter);
       tamedRef.current = 0;
       setTarget(0);
       setFocus(null);
@@ -799,7 +805,7 @@ export function BattleScreen() {
   const downed = g0.foes.filter((f) => f.out === 'down').length;
   const wonText = party
     ? `The pack is cleared. +40 XP each for the party, and ${3 * downed} wood for the base.`
-    : 'The Mossback Toadstool is defeated. +40 XP and 3 wood for the base.';
+    : `The ${g0.foes[0].name} is defeated. +40 XP and 3 wood for the base.`;
 
   return (
     <GestureDetector gesture={gesture}>
@@ -877,16 +883,23 @@ export function BattleScreen() {
                 <Pressable accessibilityRole="switch" accessibilityState={{ checked: assist }} onPress={() => setAssist((a) => !a)} hitSlop={8}>
                   <Chip label={assist ? 'ASSIST ON' : 'ASSIST OFF'} fill={assist ? colors.mint : colors.vellum} />
                 </Pressable>
-                <Pressable
-                  accessibilityRole="switch"
-                  accessibilityLabel="Party size"
-                  accessibilityState={{ checked: full, disabled: phase === 'acting' }}
-                  disabled={phase === 'acting'}
-                  onPress={toggleParty}
-                  hitSlop={8}
-                >
-                  <Chip label={full ? 'PARTY 4' : 'SOLO'} fill={full ? colors.butter : colors.vellum} />
-                </Pressable>
+                {!encounter ? (
+                  <Pressable
+                    accessibilityRole="switch"
+                    accessibilityLabel="Party size"
+                    accessibilityState={{ checked: full, disabled: phase === 'acting' }}
+                    disabled={phase === 'acting'}
+                    onPress={toggleParty}
+                    hitSlop={8}
+                  >
+                    <Chip label={full ? 'PARTY 4' : 'SOLO'} fill={full ? colors.butter : colors.vellum} />
+                  </Pressable>
+                ) : null}
+                {onExit && phase !== 'acting' ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Back to base" onPress={onExit} hitSlop={8}>
+                    <Chip label="‹ BASE" fill={colors.mint} />
+                  </Pressable>
+                ) : null}
               </View>
             </View>
 
@@ -1099,10 +1112,12 @@ export function BattleScreen() {
                           ? 'The toadstools win this round. Try reading the wind-up before you tap.'
                           : phase === 'tamed'
                             ? `The ${tamedName} is heading to your base. It will work as a Forager: +10% wood.${party ? ' The rest of the pack fled.' : ''}`
-                            : 'You slipped away into the fog. No rewards from this room.'}
+                            : encounter
+                              ? `You backed off. The ${encounter.name} is still wandering your base.`
+                              : 'You slipped away into the fog. No rewards from this room.'}
                     </Text>
-                    <PixelButton height={52} onPress={() => reset(full)} style={{ marginTop: 'auto' }}>
-                      <Text style={[t.buttonSmall, st.cta]}>Fight again</Text>
+                    <PixelButton height={52} onPress={() => (onDone ? onDone(phase as BattleResult) : reset(full))} style={{ marginTop: 'auto' }}>
+                      <Text style={[t.buttonSmall, st.cta]}>{onDone ? 'Back to base' : 'Fight again'}</Text>
                     </PixelButton>
                   </View>
                 </Framed>

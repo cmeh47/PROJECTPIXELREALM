@@ -8,7 +8,7 @@ Decided on 2026-10-25.
 | Engine | Expo + React Native Skia |
 | Backend | Supabase |
 | Co-op | Live sessions: friends share the hub and play the same dungeon at the same moment |
-| Base | One main building (Storehouse, Forge, Quest Board as rooms), plus a personal home for each player on the base lot |
+| Base | Each player has their own base. They can invite friends in to help, up to 4 players at a time. (Replaces the earlier shared base lot.) |
 | Echoes | Kept. A solo player can bring AI-controlled copies of friends' heroes. Those friends earn a reduced share of XP and rewards. |
 | Parties | Invite-code friends only for now |
 | Art | Aseprite, drawn by Cameron and Claude |
@@ -34,3 +34,13 @@ Decided on 2026-10-25.
 | Group turns | Simultaneous: every player picks a move and a target at once, then heroes act in order, then each enemy attacks one hero. Only the targeted player parries. |
 | Taming in group fights | The player picks which monster to tame. A success ends the battle and the rest of the pack flees. Only one tame per battle, except in a live co-op battle, where every player who picks TAME in the same round gets their own roll, so several can be tamed. |
 | Battle screen | The scene fills the screen edge to edge; the command menu is docked to the bottom. A full party zooms the camera out so all heroes and enemies are on the field. |
+
+## Player base (decided while building the first base slice)
+
+| Topic | Decision |
+|---|---|
+| Ownership | Every player owns a base: a meadow lot with their cottage. Visitors come by invite, 4 players on a base at most (the owner plus three). |
+| Starting lot | Green grass, choppable trees for wood, a pond and 4 wild Mossback Toadstools to clear. |
+| Trees | Tap a tree to walk over and chop it: 3 swings, 1 wood each. It leaves a stump that regrows after a minute. The ring of trees on the edge can't be chopped. |
+| Toadstools | Touching one pops a "!" bubble over its head, then a swirl transition starts the battle. Win: it's gone and drops 3 wood. Tame: it becomes a pet by the cottage. Flee: you step back and get a moment of grace. Lose: you wake up at your door. |
+| Controls | Touch to walk: hold anywhere and the hero walks toward your finger; a quick tap walks to the spot. Pending Cameron's pick between touch, a joystick, or a D-pad. |
