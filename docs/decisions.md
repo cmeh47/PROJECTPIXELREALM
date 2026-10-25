@@ -12,6 +12,9 @@ Decided on 2026-10-25.
 | Echoes | Kept. A solo player can bring AI-controlled copies of friends' heroes. Those friends earn a reduced share of XP and rewards. |
 | Parties | Invite-code friends only for now |
 | Art | Aseprite, drawn by Cameron and Claude |
+| Battle menu | Each turn: ATTACK (opens the move list), TAME, FLEE. In a live party, fleeing needs a vote. |
+| Taming | Classic chance roll. Lower HP, a Broken enemy and offered treats raise the chance. A failed roll gives the monster its turn. |
+| Pets | Tamed monsters live on the base and take jobs there (for example a forager for bonus wood). A core feature. |
 | Prototype approach | Animation storyboards first, approved before code |
 | Title | Not decided yet |
 
