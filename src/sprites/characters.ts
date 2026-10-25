@@ -23,7 +23,16 @@ export type HeroPose = {
   spark?: number;
   clang?: boolean;
   dust?: boolean;
+  look?: number;
 };
+
+// Palette swaps so the four party members read apart at a glance. Index 0 is the Lavender Knight.
+export const HERO_LOOKS: Record<string, string>[] = [
+  {},
+  { L: 'M', D: 'm' },
+  { L: 'B', D: 'b', Y: 'R', G: 'r' },
+  { L: 'Y', D: 'G', Y: 'L', G: 'D' },
+];
 
 const HEAD = ['..RR.....', '.RRLLLL..', '.LLLLLLL.', 'LHLLLLLLD', 'LLLDSSSS.', 'LLLDSSKS.', 'LLLDSSSR.', '.DDDSSS..', '..DD.....'];
 const TORSO = ['.DLLLLL.', 'DLHLLLLD', 'DLLLLLLD', 'bbbbbbbb', 'LLLLLLLD', 'LLLLLLLD'];
@@ -36,6 +45,7 @@ type HeroBody = { g: Grid; tip: { x: number; y: number }; sh: { x: number; y: nu
 
 function heroBody(p: HeroPose): HeroBody {
   const g = new Grid(HERO_W, HERO_H);
+  const sw = HERO_LOOKS[p.look ?? 0] ?? {};
   const bx = 22 + (p.x ?? 0);
   const gy = HERO_GROUND + (p.y ?? 0);
   const lg = p.legs ?? 'stand';
@@ -62,17 +72,20 @@ function heroBody(p: HeroPose): HeroBody {
     bl = bx - 3;
     fl = bx;
   }
-  g.stamp(legH === 3 ? LEGBS : LEGB, bl, by);
+  g.stamp(legH === 3 ? LEGBS : LEGB, bl, by, sw);
 
   const sway = p.cape ?? 0;
   for (let j = 0; j < 7; j++) {
     const cw = 2 + Math.floor(j / 2);
     const cx = tx + 1 - cw - (j > 2 ? sway : 0);
-    for (let i = 0; i < cw + 1; i++) g.set(cx + i, ty + j, j === 6 || i === 0 ? PAL.G : PAL.Y);
+    for (let i = 0; i < cw + 1; i++) {
+      const ch = j === 6 || i === 0 ? 'G' : 'Y';
+      g.set(cx + i, ty + j, PAL[sw[ch] ?? ch]);
+    }
   }
-  g.stamp(TORSO, tx, ty);
-  g.stamp(HEAD, bx - 4 + lean, ty - 8);
-  g.stamp(legH === 3 ? LEGFS : LEGF, fl, fy);
+  g.stamp(TORSO, tx, ty, sw);
+  g.stamp(HEAD, bx - 4 + lean, ty - 8, sw);
+  g.stamp(legH === 3 ? LEGFS : LEGF, fl, fy, sw);
 
   const sx = tx + 5;
   const sy = ty + 2;
@@ -95,7 +108,7 @@ function heroBody(p: HeroPose): HeroBody {
   }
   g.set(hx - dx * 2, hy - dy * 2, PAL.b);
   for (let q = -2; q <= 2; q++) g.set(hx + dx * 2 + px * q * 0.8, hy + dy * 2 + py * q * 0.8, PAL.b);
-  seg(g, sx, sy, hx, hy, PAL.D, 2);
+  seg(g, sx, sy, hx, hy, PAL[sw.D ?? 'D'], 2);
   g.set(hx, hy, PAL.V);
   g.set(hx + 1, hy, PAL.V);
   g.set(hx, hy + 1, PAL.V);
@@ -153,7 +166,11 @@ export type FoePose = {
   spark?: number;
   stars?: number;
   smear?: [number, number, number, number];
+  look?: number;
 };
+
+// Cap colors for a mixed pack of toadstools.
+export const FOE_LOOKS: Record<string, string>[] = [{}, { R: 'L', r: 'D' }, { R: 'B', r: 'b' }];
 
 const CAP = ['.....RRRRRRRR.....', '...RRVVRRRRRRRR...', '..RRVVRRRRRVVRRR..', '.RRRRRRRRRRVVRRRR.', 'RRRRRVVRRRRRRRRRRr', 'RRRRRVVRRRRRRRRRrr', 'rrRRRRRRRRRRRRRrrr', '.rrrrrrrrrrrrrrrr.'];
 const STEM = ['.CVVVVVVVVC.', 'CVVVVVVVVVVC', 'CVKVVVKVVVVC', 'CVKVVVKVVVVC', 'CSVVVVVSVVVC', 'CVVVKKVVVVVC', 'CVVVVVVVVVVC', '.CCVVVVVVCC.'];
@@ -185,7 +202,7 @@ export function foeLayers(p: FoePose): Layer[] {
   g.set(tx - 2, ty - 1, PAL.M);
   const cx0 = sx0 - 3 + (p.tilt ?? 0);
   const cy0 = sy0 - 6 + (p.capDy ?? 0);
-  g.stamp(CAP, cx0, cy0);
+  g.stamp(CAP, cx0, cy0, FOE_LOOKS[p.look ?? 0]);
   g.set(hx, hy, PAL.V);
   g.set(hx + 1, hy, PAL.V);
   g.set(hx, hy + 1, PAL.V);

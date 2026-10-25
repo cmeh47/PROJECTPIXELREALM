@@ -4,12 +4,13 @@ import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 
 import { FOE_GROUND, HERO_GROUND, type FoePose, type HeroPose } from '../sprites/characters';
 import { Grid, PAL } from '../sprites/pixel';
-import { backdropPicture, foePicture, gridPicture, heroPicture, SCENE_GROUND, SCENE_H, SCENE_W } from '../sprites/render';
+import { backdropPicture, foePicture, gridPicture, heroPicture } from '../sprites/render';
 import { colors } from '../theme';
+import type { Field, Slot } from './field';
 
-// Where the characters stand, in art pixels. heroX / foeX shift them for dashes and lunges.
-export const HERO_HOME = -6;
-export const FOE_HOME = 52;
+// Where a sprite frame sits for a slot: hero bodies are 22 px into their frame, foes 36.
+export const heroFrame = (slot: Slot) => ({ x: slot.x - 22, y: slot.y - HERO_GROUND });
+export const foeFrame = (slot: Slot) => ({ x: slot.x - 36, y: slot.y - FOE_GROUND });
 
 export type RuneFx = {
   visible: SharedValue<number>;
@@ -21,6 +22,10 @@ export type RuneFx = {
   decoyY: SharedValue<number>;
 };
 
+export type Actor =
+  | { kind: 'hero'; key: string; slot: Slot; pose: HeroPose; dx?: SharedValue<number> }
+  | { kind: 'foe'; key: string; slot: Slot; pose: FoePose; dx?: SharedValue<number> };
+
 function runeGrid(decoy: boolean) {
   const g = new Grid(7, 7);
   g.stamp(['..b..', '.bBb.', 'bBHBb', '.bBb.', '..b..'], 1, 1);
@@ -29,29 +34,32 @@ function runeGrid(decoy: boolean) {
   return g;
 }
 
-export function BattleScene({
-  s,
-  hero,
-  foe,
-  heroX,
-  foeX,
-  rune,
-}: {
-  s: number;
-  hero: HeroPose;
-  foe: FoePose;
-  heroX: SharedValue<number>;
-  foeX: SharedValue<number>;
-  rune: RuneFx;
-}) {
-  const bg = useMemo(() => backdropPicture(s), [s]);
-  const heroPic = useMemo(() => heroPicture(hero, s), [hero, s]);
-  const foePic = useMemo(() => foePicture(foe, s), [foe, s]);
+function ActorSprite({ actor, s }: { actor: Actor; s: number }) {
+  const pic = useMemo(
+    () => (actor.kind === 'hero' ? heroPicture(actor.pose, s) : foePicture(actor.pose, s)),
+    [actor.kind, actor.pose, s],
+  );
+  const frame = actor.kind === 'hero' ? heroFrame(actor.slot) : foeFrame(actor.slot);
+  const dx = actor.dx;
+  const transform = useDerivedValue(
+    () => [{ translateX: Math.round(frame.x + (dx ? dx.value : 0)) * s }, { translateY: frame.y * s }],
+    [frame.x, frame.y, dx, s],
+  );
+  return (
+    <Group transform={transform}>
+      <Picture picture={pic} />
+    </Group>
+  );
+}
+
+export function BattleScene({ field, actors, rune }: { field: Field; actors: Actor[]; rune: RuneFx }) {
+  const { s, w, h, horizon } = field;
+  const bg = useMemo(() => backdropPicture(w, h, horizon, s), [w, h, horizon, s]);
   const runePic = useMemo(() => gridPicture('rune', runeGrid(false), s), [s]);
   const decoyPic = useMemo(() => gridPicture('decoy', runeGrid(true), s), [s]);
+  // Back lanes first, so nearer sprites overlap farther ones.
+  const sorted = useMemo(() => [...actors].sort((a, b) => a.slot.y - b.slot.y), [actors]);
 
-  const heroT = useDerivedValue(() => [{ translateX: Math.round(HERO_HOME + heroX.value) * s }, { translateY: (SCENE_GROUND - HERO_GROUND) * s }]);
-  const foeT = useDerivedValue(() => [{ translateX: Math.round(FOE_HOME + foeX.value) * s }, { translateY: (SCENE_GROUND - FOE_GROUND) * s }]);
   // Hidden runes also park off-canvas, so nothing peeks out if a renderer ignores group opacity.
   const runeT = useDerivedValue(() =>
     rune.visible.value > 0 ? [{ translateX: (Math.round(rune.x.value) - 3) * s }, { translateY: (Math.round(rune.y.value) - 3) * s }] : [{ translateX: -100 * s }, { translateY: 0 }],
@@ -65,14 +73,11 @@ export function BattleScene({
   const ringColor = useDerivedValue(() => (rune.ring.value <= 5 ? colors.xpGold : colors.lavenderDeep));
 
   return (
-    <Canvas style={{ width: SCENE_W * s, height: SCENE_H * s }}>
+    <Canvas style={{ width: w * s, height: h * s }}>
       <Picture picture={bg} />
-      <Group transform={foeT}>
-        <Picture picture={foePic} />
-      </Group>
-      <Group transform={heroT}>
-        <Picture picture={heroPic} />
-      </Group>
+      {sorted.map((a) => (
+        <ActorSprite key={a.key} actor={a} s={s} />
+      ))}
       <Group opacity={rune.decoy} transform={decoyT}>
         <Picture picture={decoyPic} />
       </Group>

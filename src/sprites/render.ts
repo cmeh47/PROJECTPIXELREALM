@@ -50,44 +50,59 @@ export function gridPicture(key: string, grid: Grid, s: number) {
   return cached(`g${key}${s}`, () => drawLayers([{ grid, alpha: 1 }], s));
 }
 
-// Foggy Forest backdrop: pale lollipop trees, fog bands, a scroll-colored path.
-export const SCENE_W = 116;
-export const SCENE_H = 72;
-export const SCENE_GROUND = 62;
+// Foggy Forest backdrop, drawn to any field size: misty tree lines above the horizon,
+// a scroll-colored clearing below it, grass tufts scattered through the depth.
+function rng(seed: number) {
+  let x = seed;
+  return () => {
+    x = (x * 1103515245 + 12345) % 2147483648;
+    return x / 2147483648;
+  };
+}
 
-const TREES: [number, number, number, number][] = [
-  [8, 32, 8, 0.14], [30, 28, 6, 0.14], [54, 34, 9, 0.14], [104, 30, 8, 0.14],
-  [84, 24, 6, 0.1], [16, 46, 5, 0.24], [110, 48, 5, 0.24],
-];
-
-export function backdropPicture(s: number) {
-  return cached(`bg${s}`, () =>
+export function backdropPicture(w: number, h: number, horizon: number, s: number) {
+  return cached(`bg${w}x${h}@${s}`, () =>
     createPicture(
       (canvas) => {
         const paint = Skia.Paint();
-        const rect = (x: number, y: number, w: number, h: number, c: string, a = 1) => {
+        const rect = (x: number, y: number, rw: number, rh: number, c: string, a = 1) => {
           paint.setColor(Skia.Color(c));
           paint.setAlphaf(a);
-          canvas.drawRect(Skia.XYWHRect(x * s, y * s, w * s, h * s), paint);
+          canvas.drawRect(Skia.XYWHRect(x * s, y * s, rw * s, rh * s), paint);
         };
-        rect(0, 0, SCENE_W, SCENE_H, colors.vellum);
-        for (const [cx, cy, r, a] of TREES) {
-          rect(cx - 1, cy, 3, SCENE_GROUND - cy, colors.lavenderDeep, a);
+        const tree = (cx: number, cy: number, r: number, a: number) => {
+          rect(cx - 1, cy, 3, horizon - cy, colors.lavenderDeep, a);
           for (let dy = -r; dy <= r; dy++) {
-            const w = Math.round(Math.sqrt(r * r - dy * dy));
-            rect(cx - w, cy + dy, 2 * w + 1, 1, colors.lavenderDeep, a);
+            const hw = Math.round(Math.sqrt(r * r - dy * dy));
+            rect(cx - hw, cy + dy, 2 * hw + 1, 1, colors.lavenderDeep, a);
+          }
+        };
+        const rand = rng(7);
+        rect(0, 0, w, h, colors.vellum);
+        // Far line, then mid line, with fog between them.
+        for (let x = 4; x < w + 8; x += 14 + Math.floor(rand() * 8)) tree(x, horizon - 20 - Math.floor(rand() * 8), 5 + Math.floor(rand() * 3), 0.09);
+        rect(0, horizon - 18, w, 3, colors.vellum, 0.7);
+        for (let x = 10; x < w + 8; x += 22 + Math.floor(rand() * 12)) tree(x, horizon - 30 - Math.floor(rand() * 10), 8 + Math.floor(rand() * 3), 0.14);
+        rect(0, horizon - 10, w, 2, colors.vellum, 0.7);
+        rect(0, horizon - 5, w, 4, colors.vellum, 0.45);
+        // The clearing.
+        rect(0, horizon, w, h - horizon, colors.scroll);
+        for (let x = 0; x < w; x += 6) rect(x + Math.floor(rand() * 3), horizon, 3, 1, colors.vellum, 0.5);
+        for (let i = 0; i < Math.floor((w * (h - horizon)) / 70); i++) {
+          const gx = Math.floor(rand() * w);
+          const gy = horizon + 3 + Math.floor(rand() * (h - horizon - 4));
+          if (rand() < 0.6) {
+            rect(gx, gy, 2, 1, colors.mint);
+            rect(gx + 1, gy - 1, 1, 1, colors.mint);
+          } else {
+            rect(gx, gy, 1, 1, colors.inkSoft, 0.18);
           }
         }
-        rect(0, 50, SCENE_W, 3, colors.vellum, 0.7);
-        rect(0, 38, SCENE_W, 2, colors.vellum, 0.7);
-        rect(0, 55, SCENE_W, 4, colors.vellum, 0.45);
-        rect(0, SCENE_GROUND, SCENE_W, SCENE_H - SCENE_GROUND, colors.scroll);
-        for (let x = 4; x < SCENE_W; x += 11) {
-          rect(x, SCENE_GROUND - 1, 2, 1, colors.mint);
-          rect(x + 1, SCENE_GROUND - 2, 1, 1, colors.mint);
-        }
+        // Foreground trunks at the edges frame the shot.
+        tree(-2, horizon - 26, 7, 0.22);
+        tree(w + 1, horizon - 22, 6, 0.22);
       },
-      { width: SCENE_W * s, height: SCENE_H * s },
+      { width: w * s, height: h * s },
     ),
   );
 }
