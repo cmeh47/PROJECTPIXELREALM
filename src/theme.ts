@@ -18,6 +18,13 @@ export const colors = {
   questGreen: '#5FB894',
   epicPurple: '#A77BE0',
   white: '#FFFFFF',
+  // World scenery (DESIGN.md section 2, "World"): deeper tones so props stand out on the mint meadow.
+  leaf: '#4E9E82',
+  leafDeep: '#3A7A6A',
+  bark: '#8C6B5E',
+  barkDeep: '#6B4F4A',
+  stone: '#DCD3E6',
+  stoneDeep: '#B2A6C6',
 } as const;
 
 export const P = 4;

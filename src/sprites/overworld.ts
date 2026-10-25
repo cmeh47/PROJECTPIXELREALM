@@ -133,69 +133,91 @@ export function toadOverworld(hop: number, look = 0, flip = false): Grid {
   return g;
 }
 
-// Birch-like pastel tree, 28 x 34 frame, trunk base centered at (14, 33).
-export const TREE_W = 28;
-export const TREE_H = 34;
-
-function disc(g: Grid, cx: number, cy: number, r: number, col: string) {
-  for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r * 0.6) g.set(cx + x, cy + y, col);
-}
+// A tall leafy tree, 30 x 48 frame, trunk base centered at (15, 47). The canopy is stacked in
+// tiers, lit from the top left: leaf body, leafDeep shade and tier lines, questGreen highlights.
+export const TREE_W = 30;
+export const TREE_H = 48;
 
 export function treeGrid(variant: number): Grid {
   const g = new Grid(TREE_W, TREE_H);
-  // Trunk: pale birch bark with plum marks and a peach shaded side.
-  for (let y = 19; y < 33; y++) {
-    for (let x = 12; x < 16; x++) g.set(x, y, PAL.C);
-    g.set(15, y, PAL.S);
-  }
-  [[12, 22], [13, 22], [14, 26], [15, 26], [12, 29], [13, 29]].forEach(([x, y]) => g.set(x, y, PAL.P));
-  g.set(11, 32, PAL.C);
-  g.set(10, 32, PAL.C);
-  g.set(16, 32, PAL.S);
-  g.set(17, 32, PAL.S);
-  // Canopy: a cloud of discs, lit from the top left. Lavender shade on the lower right rim,
-  // mint leaf scallops on the lit side.
   const v = variant % 3;
+  // Trunk: bark with a shaded right side, a few marks and a root flare.
+  for (let y = 26; y < 47; y++) {
+    for (let x = 13; x < 17; x++) g.set(x, y, PAL.w);
+    g.set(16, y, PAL.W);
+  }
+  [[13, 36], [14, 37], [15, 41], [14, 30]].forEach(([x, y]) => g.set(x, y, PAL.W));
+  [[11, 46], [12, 46], [12, 45]].forEach(([x, y]) => g.set(x, y, PAL.w));
+  [[17, 46], [18, 46], [17, 45]].forEach(([x, y]) => g.set(x, y, PAL.W));
+  // Canopy tiers, top to bottom. The lowest tier ends a dozen pixels above the ground.
   const blobs: [number, number, number][] =
     v === 0
-      ? [[14, 12, 9], [7, 15, 5], [21, 15, 5], [14, 6, 6]]
+      ? [[15, 8, 7], [15, 18, 10], [7, 23, 5], [23, 23, 5], [15, 26, 8]]
       : v === 1
-        ? [[14, 12, 8], [9, 8, 6], [19, 8, 6], [14, 18, 5], [6, 14, 4], [22, 14, 4]]
-        : [[14, 11, 9], [8, 17, 5], [20, 17, 5]];
-  const inside = (x: number, y: number) => blobs.some(([bx, by, r]) => (x - bx) ** 2 + (y - by) ** 2 <= r * r + r * 0.6);
-  for (let y = 0; y < 24; y++) {
+        ? [[15, 8, 6], [9, 15, 6], [21, 15, 6], [15, 18, 8], [15, 27, 9]]
+        : [[15, 7, 6], [15, 15, 8], [15, 24, 11]];
+  const inBlob = (x: number, y: number, b: [number, number, number]) => (x - b[0]) ** 2 + (y - b[1]) ** 2 <= b[2] * b[2] + b[2] * 0.6;
+  const inside = (x: number, y: number) => blobs.some((b) => inBlob(x, y, b));
+  for (let y = 0; y < 38; y++) {
     for (let x = 0; x < TREE_W; x++) {
       if (!inside(x, y)) continue;
       const lower = !inside(x + 1, y + 2) || !inside(x + 2, y + 1);
-      const upper = !inside(x - 2, y - 2);
-      let col = PAL.m;
-      if (lower) col = PAL.D;
-      else if (upper) col = PAL.M;
-      else if ((x * 3 + y * 5 + v) % 11 === 0 && y < 15) col = PAL.M;
+      const upper = !inside(x - 2, y - 2) || !inside(x - 1, y - 2);
+      let col = PAL.f;
+      if (lower) col = PAL.F;
+      else if (upper) col = PAL.m;
       g.set(x, y, col);
     }
   }
-  // Leaf scallops: little arcs of light on the canopy.
-  const scallops: [number, number][] = v === 0 ? [[10, 9], [16, 7], [12, 14], [18, 12]] : v === 1 ? [[8, 7], [16, 6], [12, 12], [18, 13]] : [[10, 8], [16, 9], [12, 14]];
-  for (const [x, y] of scallops) {
-    g.set(x, y, PAL.M);
-    g.set(x + 1, y - 1, PAL.M);
-    g.set(x + 2, y - 1, PAL.M);
-    g.set(x + 3, y, PAL.M);
+  // Leaf texture: little "v" scallops on a staggered, jittered grid. Dark in the body, light up top-left.
+  for (let row = 0, cy = 3; cy < 36; cy += 4, row++) {
+    for (let cx = 2 + (row % 2) * 3; cx < TREE_W - 2; cx += 6) {
+      const j = (cx * 7 + cy * 13 + v * 5) % 3;
+      const x = cx + j - 1;
+      const y = cy + ((cx + v) % 2);
+      if (![[x, y], [x + 1, y + 1], [x + 2, y], [x + 1, y - 2], [x + 3, y + 2]].every(([a, b]) => inside(a, b)) || g.get(x, y) !== PAL.f) continue;
+      const lit = x + y < 22 + v * 2;
+      const c = lit ? PAL.m : PAL.F;
+      g.set(x, y, c);
+      g.set(x + 1, y + 1, c);
+      g.set(x + 2, y, c);
+    }
   }
-  g.set(blobs[0][0] - 4, blobs[0][1] - 5, PAL.H);
-  g.set(blobs[0][0] - 3, blobs[0][1] - 5, PAL.H);
+  // Tier lines: the lower arc of each upper tier casts a dark scallop over the tier beneath it.
+  for (let i = 0; i < blobs.length; i++) {
+    const [bx, by, r] = blobs[i];
+    for (let x = bx - r; x <= bx + r; x++) {
+      const dy = Math.sqrt(Math.max(0, r * r + r * 0.6 - (x - bx) ** 2));
+      const y = Math.floor(by + dy) + 1;
+      if (!inside(x, y) || !inside(x, y + 1)) continue;
+      if (blobs.some((b, j) => j !== i && b[1] < by && inBlob(x, y, b))) continue;
+      if (blobs.slice(i + 1).some((b) => b[1] > by && inBlob(x, y, b))) {
+        g.set(x, y, PAL.F);
+        if (x < bx) g.set(x, y + 1, PAL.m);
+      }
+    }
+  }
+  // Leaf scallops and a glint on the lit side.
+  const scallops: [number, number][] = v === 0 ? [[11, 5], [9, 14], [14, 13], [6, 21]] : v === 1 ? [[12, 5], [6, 12], [13, 16], [11, 24]] : [[12, 4], [10, 12], [9, 21]];
+  for (const [x, y] of scallops) {
+    g.set(x, y, PAL.m);
+    g.set(x + 1, y - 1, PAL.m);
+    g.set(x + 2, y - 1, PAL.M);
+    g.set(x + 3, y, PAL.m);
+  }
+  g.set(blobs[0][0] - 3, blobs[0][1] - 4, PAL.M);
+  g.set(blobs[0][0] - 2, blobs[0][1] - 4, PAL.M);
   // Two tiny blossoms so the trees read as friendly, not generic.
   const bl = v === 1 ? PAL.B : PAL.R;
-  g.set(7 + v, 14, bl);
-  g.set(19 - v, 9 + v, bl);
+  g.set(8 + v, 20, bl);
+  g.set(20 - v, 11 + v, bl);
   g.outline(PAL.K);
   return g;
 }
 
 export function stumpGrid(): Grid {
   const g = new Grid(16, 11);
-  g.stamp(['...BBBBBB...', '..BSSSSSSB..', '..BSBBBBSB..', '..BSSSSSSB..', '...BBBBBB...', '..CCCCPCCS..', '..CPCCCCCS..', '.CCCCCCPCSS.', 'CC.CCCCCS.SS'], 2, 1);
+  g.stamp(['...SSSSSS...', '..SBBBBBBS..', '..SBSSSSBS..', '..SBBBBBBS..', '...SSSSSS...', '..wwwwWwwW..', '..wWwwwwwW..', '.wwwwwwWwWW.', 'ww.wwwwwW.WW'], 2, 1);
   g.outline(PAL.K);
   return g;
 }
@@ -269,7 +291,7 @@ export function heartGrid(): Grid {
 // A falling leaf and a wood chip, for chopping.
 export function leafGrid(): Grid {
   const g = new Grid(4, 4);
-  g.stamp(['M.', 'mM', '.m'], 1, 0);
+  g.stamp(['m.', 'fm', '.F'], 1, 0);
   return g;
 }
 

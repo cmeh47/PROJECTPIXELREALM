@@ -61,6 +61,19 @@ classic pixel art.
 | `questGreen` | `#5FB894` | Quest complete check, positive deltas |
 | `epicPurple` | `#A77BE0` | Rare/epic rewards |
 
+### World (base scenery)
+
+Deeper tones for props on the overworld, so trees and paths read clearly against the mint meadow.
+
+| Token | Hex | Use |
+|---|---|---|
+| `leaf` | `#4E9E82` | Tree canopies |
+| `leafDeep` | `#3A7A6A` | Canopy shade and tier lines |
+| `bark` | `#8C6B5E` | Tree trunks, stumps |
+| `barkDeep` | `#6B4F4A` | Trunk shade, bark marks |
+| `stone` | `#DCD3E6` | Cobblestones |
+| `stoneDeep` | `#B2A6C6` | Mortar between cobblestones, path rim |
+
 ### Night mode ("Moonlit Forest")
 
 | Token | Hex |

@@ -268,11 +268,11 @@ export function BaseScreen() {
             tr.flash = 80;
             setWood((w) => w + 1);
             haptic('light');
-            pop('+1', colors.butter, tr.x, tr.y - 30);
-            for (let k = 0; k < 3; k++) leaves.current.push({ x: tr.x + rand(-10, 10), y: tr.y - rand(14, 26), vx: rand(-12, 12), vy: rand(-20, 0), life: 700 });
+            pop('+1', colors.butter, tr.x, tr.y - 44);
+            for (let k = 0; k < 3; k++) leaves.current.push({ x: tr.x + rand(-10, 10), y: tr.y - rand(18, 36), vx: rand(-12, 12), vy: rand(-20, 0), life: 700 });
             if (tr.hits >= CHOPS_PER_TREE) {
               tr.felledAt = Date.now();
-              for (let k = 0; k < 10; k++) leaves.current.push({ x: tr.x + rand(-12, 12), y: tr.y - rand(8, 28), vx: rand(-30, 30), vy: rand(-40, -5), life: 800 });
+              for (let k = 0; k < 10; k++) leaves.current.push({ x: tr.x + rand(-12, 12), y: tr.y - rand(12, 40), vx: rand(-30, 30), vy: rand(-40, -5), life: 800 });
               chop.current = null;
               haptic('success');
             }
@@ -442,7 +442,7 @@ export function BaseScreen() {
     g.downAt = Date.now();
     chop.current = null;
     // A tree? Walk to the nearest free side of its trunk, then chop.
-    const tr = trees.current.find((tt) => !tt.border && !tt.felledAt && p.x > tt.x - 13 && p.x < tt.x + 13 && p.y > tt.y - 32 && p.y < tt.y + 3);
+    const tr = trees.current.find((tt) => !tt.border && !tt.felledAt && p.x > tt.x - 13 && p.x < tt.x + 13 && p.y > tt.y - TREE_H + 4 && p.y < tt.y + 3);
     if (tr) {
       const h = hero.current;
       const sides = [

@@ -74,14 +74,50 @@ export function groundPicture(s: number) {
             px(tx + 12, ty + 9, 1, 1, colors.questGreen, 0.35);
           }
         }
-        // Path: scroll-colored dirt with a peach rim and rounded corners.
-        for (const r of PATH) px(r.x, r.y, r.w, r.h, colors.scroll);
+        // Path: pastel cobblestones. Mortar first, then rounded stones in staggered courses, each
+        // with a vellum glint on top and a soft shadow underneath. The rim is a row of stoneDeep.
+        for (const r of PATH) px(r.x, r.y, r.w, r.h, colors.stoneDeep);
+        const inner = (x: number, y: number) => onPath({ x, y }, -1);
+        let seed = 7;
+        const rnd = () => {
+          seed = (seed * 1103515245 + 12345) % 2147483648;
+          return seed / 2147483648;
+        };
+        // One set of courses for the whole map, so stones run on unbroken where paths meet.
+        const top = Math.min(...PATH.map((r) => r.y)) - 4;
+        const bottom = Math.max(...PATH.map((r) => r.y + r.h));
+        const left = Math.min(...PATH.map((r) => r.x)) - 8;
+        const right = Math.max(...PATH.map((r) => r.x + r.w));
+        for (let y = top, row = 0; y < bottom; y += 5, row++) {
+          let x = left - (row % 2) * 3;
+          while (x < right) {
+            const w = 4 + Math.floor(rnd() * 3);
+            for (let j = 0; j < 4; j++) {
+              for (let i = 0; i < w; i++) {
+                const corner = (i === 0 || i === w - 1) && (j === 0 || j === 3);
+                const cx = x + i;
+                const cy = y + j;
+                if (corner || !inner(cx, cy)) continue;
+                px(cx, cy, 1, 1, j === 0 && i > 0 && i < w - 2 ? colors.vellum : colors.stone);
+                if (j === 3 && i > 0) px(cx, cy, 1, 1, colors.inkSoft, 0.18);
+              }
+            }
+            x += w + 1;
+          }
+        }
+        // Stones that ended up as a sliver along the rim read as noise; the rim row stays clean.
         for (let y = 0; y < MAP_H; y++) {
           for (let x = 0; x < MAP_W; x++) {
-            const on = onPath({ x, y });
-            if (!on) continue;
+            if (!onPath({ x, y })) continue;
             const edge = !onPath({ x: x + 1, y }) || !onPath({ x: x - 1, y }) || !onPath({ x, y: y + 1 }) || !onPath({ x, y: y - 1 });
-            if (edge) px(x, y, 1, 1, colors.peach);
+            if (edge) px(x, y, 1, 1, colors.stoneDeep);
+            else if (!onPath({ x, y: y + 2 })) px(x, y, 1, 1, colors.stoneDeep);
+          }
+        }
+        // A one-pixel shade on the grass below the path so it sits into the meadow.
+        for (let y = 0; y < MAP_H; y++) {
+          for (let x = 0; x < MAP_W; x++) {
+            if (!onPath({ x, y }) && onPath({ x, y: y - 1 })) px(x, y, 1, 1, colors.questGreen, 0.45);
           }
         }
         // Pond: ink rim, mana-blue shore, sky water, lily pads and sparkles.
@@ -116,8 +152,7 @@ export function groundPicture(s: number) {
             px(d.x, d.y, 2, 2, colors.questGreen, 0.55);
             px(d.x + 2, d.y + 1, 2, 2, colors.questGreen, 0.55);
           } else if (d.kind === 'pebble') {
-            px(d.x, d.y, 2, 1, colors.peach);
-            px(d.x, d.y + 1, 2, 1, colors.inkSoft, 0.35);
+            // Paths are cobbled now; no loose pebbles on them.
           } else {
             const c = tone[d.color ?? 'R'];
             px(d.x + 1, d.y, 1, 1, c);
