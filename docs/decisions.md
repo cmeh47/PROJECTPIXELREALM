@@ -25,3 +25,12 @@ Decided on 2026-10-25.
 6. Group incentives, presence and push notifications (development build)
 7. Dungeon and combat
 8. Boss raid and a one-week playtest with four friends
+
+## Combat rules (decided while building the prototype)
+
+| Topic | Decision |
+|---|---|
+| AP | Every Perfect strike and every parry earns 1 AP, on top of Quick Strike. |
+| Group turns | Simultaneous: every player picks a move and a target at once, then heroes act in order, then each enemy attacks one hero. Only the targeted player parries. |
+| Taming in group fights | The player picks which monster to tame. A success ends the battle and the rest of the pack flees. Only one tame per battle, except in a live co-op battle, where every player who picks TAME in the same round gets their own roll, so several can be tamed. |
+| Battle screen | The scene fills the screen edge to edge; the command menu is docked to the bottom. A full party zooms the camera out so all heroes and enemies are on the field. |
