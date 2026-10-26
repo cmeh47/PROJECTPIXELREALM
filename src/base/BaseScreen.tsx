@@ -1,24 +1,26 @@
 import { Canvas, Group, Oval, Path, Picture, Skia } from '@shopify/react-native-skia';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
-import Animated, { Easing, SlideInLeft, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BattleScreen, type BattleResult } from '../combat/BattleScreen';
 import { PopText, type Pop } from '../combat/Pops';
 import { TREE_H, TREE_W, type Dir } from '../sprites/overworld';
-import { colors } from '../theme';
-import { Chip, Framed, haptic, PixelButton, SegBar, styles as t } from '../ui/pixel';
+import { colors, fonts } from '../theme';
+import { Chip, Framed, haptic, PixelButton, styles as t } from '../ui/pixel';
 import {
   bubblePicture,
   groundPicture,
   heartPicture,
   heroOwPicture,
   housePicture,
+  hammerPicture,
   hutPicture,
   leafPicture,
   logPicture,
   oldManPicture,
+  shackPicture,
   stumpPicture,
   swipePicture,
   toadOwPicture,
@@ -26,6 +28,7 @@ import {
 } from './art';
 import { BUTCHER, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
+import { QuestLog } from './QuestLog';
 import { BUTCHER_SCRIPT, BUTCHER_SPEAKER, CRITTER_SCRIPT, critterSpeaker } from './npcs';
 import { WindLayer } from './WindLayer';
 
@@ -39,6 +42,7 @@ const TOUCH_RADIUS = 11; // bumping into a Shroomie
 const GRACE_MS = 2500; // after fleeing or losing, Shroomies ignore you for a moment
 const MAX_VISITORS = 4;
 const HUT_WOOD = 10; // the butcher's quest
+const BUILD_MS = 10 * 60_000; // he rebuilds his shack in 10 real minutes
 
 const TOAD_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie', 'Mossback Shroomie'];
 const TOAD_LOOKS = [0, 1, 2, 0];
@@ -63,7 +67,8 @@ type Leaf = { x: number; y: number; vx: number; vy: number; life: number };
 type Phase = 'roam' | 'alert' | 'swirl' | 'battle';
 type Foe = { kind: 'shroomie'; id: number } | { kind: 'butcher' };
 // How far you've got with the old butcher: he's hostile until you beat him, then offers the hut job.
-type ButcherStage = 'hostile' | 'spared' | 'quest';
+// After you bring the wood he rebuilds ('building'); 'built' until he shows you round, then 'shop'.
+type ButcherStage = 'hostile' | 'spared' | 'quest' | 'building' | 'built' | 'shop';
 type Talk = { speaker: Speaker; script: Script; start: string; key: number };
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -145,6 +150,7 @@ export function BaseScreen() {
   const npcX = useSharedValue(BUTCHER.x);
   const npcY = useSharedValue(BUTCHER.y);
   const npcBeat = useSharedValue(0);
+  const hammerBeat = useSharedValue(0);
   const bubble = useSharedValue(0);
   const swirl = useSharedValue(0);
   const flash = useSharedValue(0);
@@ -308,7 +314,9 @@ export function BaseScreen() {
     h.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
     h.frame = 0;
     const b = stageRef.current;
-    openTalk(BUTCHER_SPEAKER, BUTCHER_SCRIPT, b === 'hostile' ? 'hostile' : b === 'spared' ? 'ask' : woodRef.current >= HUT_WOOD ? 'ready' : 'quest');
+    const start =
+      b === 'hostile' ? 'hostile' : b === 'spared' ? 'ask' : b === 'quest' ? (woodRef.current >= HUT_WOOD ? 'ready' : 'quest') : b === 'building' ? 'building' : b === 'built' ? 'opened' : 'shop';
+    openTalk(BUTCHER_SPEAKER, BUTCHER_SCRIPT, start);
     force();
   };
   const endTalk = (end?: string) => {
@@ -320,8 +328,37 @@ export function BaseScreen() {
       haptic('success');
       pop('NEW QUEST!', colors.butter, BUTCHER.x, BUTCHER.y - 30, { big: true });
       setTimeout(() => setBanner(`Quest: rebuild the butcher's hut. Bring him ${HUT_WOOD} wood.`), 500);
-    }
+    } else if (end === 'handin') {
+      // The quest is done and leaves the log; the rebuild starts now.
+      setWood((w) => w - HUT_WOOD);
+      pop(`-${HUT_WOOD} WOOD`, colors.butter, BUTCHER.x, BUTCHER.y - 30);
+      buildStart.current = Date.now();
+      setBuildLeft(BUILD_MS);
+      setStage('building');
+      haptic('success');
+    } else if (end === 'opened') setStage('shop');
   };
+
+  // The rebuild's clock. It ticks once a second for the bar over the shack.
+  const buildStart = useRef(0);
+  const [buildLeft, setBuildLeft] = useState(BUILD_MS);
+  useEffect(() => {
+    if (stage !== 'building') return;
+    const tickBuild = () => {
+      const left = Math.max(0, BUILD_MS - (Date.now() - buildStart.current));
+      setBuildLeft(left);
+      if (left === 0) {
+        setStage('built');
+        haptic('success');
+        pop('SHACK BUILT!', colors.butter, HUT.x + 23, HUT.y - 6, { big: true });
+        setBanner("The butcher's shack is finished! Go take a look.");
+      }
+    };
+    tickBuild();
+    const id = setInterval(tickBuild, 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
 
   // ---------- The game loop ----------
   useEffect(() => {
@@ -500,6 +537,7 @@ export function BaseScreen() {
       // Push positions to the UI thread; the camera stays locked on the hero, clamped to the map.
       beat.value = Math.floor(now / 400) % 2;
       npcBeat.value = Math.floor(now / 700) % 2;
+      hammerBeat.value = Math.floor(now / 250) % 2;
       heroX.value = h.x;
       heroY.value = h.y;
       toads.current.forEach((td, i) => {
@@ -616,8 +654,13 @@ export function BaseScreen() {
   type Item = { y: number; key: string; node: ReactNode };
   const items: Item[] = [];
   items.push({ y: HOUSE.y + 50, key: 'house', node: <Static key="house" pic={housePicture(s)} x={HOUSE.x} y={HOUSE.y} s={s} /> });
-  items.push({ y: HUT_BOX.y + HUT_BOX.h - 4, key: 'hut', node: <Static key="hut" pic={hutPicture(s)} x={HUT.x} y={HUT.y} s={s} /> });
-  items.push({ y: BUTCHER.y, key: 'butcher', node: <OldMan key="butcher" beat={npcBeat} s={s} /> });
+  // The ruins until he gets his wood, then the shack going up, then the finished shack. The shack's
+  // frame is taller, so it's drawn 8 px higher to keep the footings lined up.
+  const building = stage === 'building';
+  const shack = building || stage === 'built' || stage === 'shop';
+  const hutPic = !shack ? hutPicture(s) : shackPicture(building ? 1 - buildLeft / BUILD_MS : 1, s);
+  items.push({ y: HUT_BOX.y + HUT_BOX.h - 4, key: 'hut', node: <Static key="hut" pic={hutPic} x={HUT.x} y={shack ? HUT.y - 8 : HUT.y} s={s} /> });
+  items.push({ y: BUTCHER.y, key: 'butcher', node: <OldMan key="butcher" beat={npcBeat} hammer={building ? hammerBeat : null} s={s} /> });
   for (const tr of trees.current) {
     const left = tr.x - TREE_W / 2 + (tr.shake > 0 ? (Math.floor(tr.shake / 40) % 2 ? 1 : -1) : 0);
     items.push({
@@ -693,6 +736,8 @@ export function BaseScreen() {
               ))
             : null}
 
+          {box && building ? <BuildBar left={buildLeft} camX={camX} camY={camY} s={s} /> : null}
+
           {/* HUD */}
           <View style={[st.hud, { top: insets.top + 8 }]} pointerEvents="box-none">
             <View style={{ gap: 8 }}>
@@ -715,7 +760,9 @@ export function BaseScreen() {
                   </View>
                 </View>
               </Framed>
-              {stage === 'quest' ? <QuestTracker wood={wood} /> : null}
+              {stage === 'quest' ? (
+                <QuestLog quests={[{ id: 'hut', title: "Rebuild the butcher's hut", giver: 'butcher', item: 'wood', have: wood, need: HUT_WOOD, turnIn: 'Bring it to him' }]} />
+              ) : null}
             </View>
             <View style={{ gap: 6, alignItems: 'flex-end' }}>
               <Pressable accessibilityRole="button" accessibilityLabel={`Visitors: 1 of ${MAX_VISITORS}. Invite friends`} onPress={() => setInvite(true)} hitSlop={8}>
@@ -855,34 +902,12 @@ function Bubble({ x, y, top, scale, s }: { x: SharedValue<number>; y: SharedValu
   );
 }
 
-// The quest log's one entry for now: the butcher's hut, tracking the wood you're carrying.
-function QuestTracker({ wood }: { wood: number }) {
-  const have = Math.min(wood, HUT_WOOD);
-  const ready = have >= HUT_WOOD;
-  return (
-    <Animated.View entering={SlideInLeft.duration(240)} accessibilityLabel={`Quest: rebuild the butcher's hut. Wood ${have} of ${HUT_WOOD}.${ready ? ' Ready to bring to the butcher.' : ''}`}>
-      <Framed depth={1} fill={colors.butter}>
-        <View style={st.quest}>
-          <Text style={t.statSoft}>QUEST</Text>
-          <Text style={[t.caption, { fontSize: 14 }]}>Rebuild the butcher's hut</Text>
-          <View style={st.counter}>
-            <Icon pic={logPicture(1)} w={14} h={9} />
-            <Text style={t.stat}>
-              {have}/{HUT_WOOD}
-            </Text>
-            <SegBar value={have} max={HUT_WOOD} segs={HUT_WOOD} fill={colors.questGreen} height={5} />
-          </View>
-          {ready ? <Text style={[t.statSoft, { color: colors.ink }]}>BRING IT TO HIM</Text> : null}
-        </View>
-      </Framed>
-    </Animated.View>
-  );
-}
-
-// The old butcher, breathing slowly where he stands.
-function OldMan({ beat, s }: { beat: SharedValue<number>; s: number }) {
+// The old butcher, breathing slowly where he stands, or swinging his hammer while he rebuilds.
+function OldMan({ beat, hammer, s }: { beat: SharedValue<number>; hammer: SharedValue<number> | null; s: number }) {
   const frames = useMemo(() => [oldManPicture(0, s), oldManPicture(1, s)], [s]);
-  const pic = useDerivedValue(() => frames[beat.value]);
+  const hammers = useMemo(() => [hammerPicture(0, s), hammerPicture(1, s)], [s]);
+  const pic = useDerivedValue(() => frames[hammer ? 0 : beat.value]);
+  const hammerPic = useDerivedValue(() => hammers[hammer ? hammer.value : 0]);
   return (
     <>
       <Group transform={[{ translateX: Math.round(BUTCHER.x - 5) * s }, { translateY: Math.round(BUTCHER.y - 1) * s }]}>
@@ -891,7 +916,32 @@ function OldMan({ beat, s }: { beat: SharedValue<number>; s: number }) {
       <Group transform={[{ translateX: Math.round(BUTCHER.x - 8) * s }, { translateY: Math.round(BUTCHER.y - 21) * s }]}>
         <Picture picture={pic} />
       </Group>
+      {hammer ? (
+        <Group transform={[{ translateX: Math.round(BUTCHER.x + 7) * s }, { translateY: Math.round(BUTCHER.y - 17) * s }]}>
+          <Picture picture={hammerPic} />
+        </Group>
+      ) : null}
     </>
+  );
+}
+
+// The bar over the shack while it's going up: fills as the clock runs, with the time left beside it.
+// It lives in screen space, following the camera.
+function BuildBar({ left, camX, camY, s }: { left: number; camX: SharedValue<number>; camY: SharedValue<number>; s: number }) {
+  const W = 40;
+  const pos = useAnimatedStyle(() => ({
+    transform: [{ translateX: (HUT.x + 23 - W / 2 - camX.value) * s }, { translateY: (HUT.y - 16 - camY.value) * s }],
+  }));
+  const secs = Math.ceil(left / 1000);
+  const label = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  const frac = 1 - left / BUILD_MS;
+  return (
+    <Animated.View pointerEvents="none" style={[st.buildBar, { width: W * s }, pos]} accessibilityLabel={`Rebuilding the shack, ${label} left`}>
+      <View style={st.buildTrack}>
+        <View style={[st.buildFill, { width: `${Math.round(frac * 100)}%` }]} />
+      </View>
+      <Text style={st.buildTime}>{label}</Text>
+    </Animated.View>
   );
 }
 
@@ -962,7 +1012,10 @@ const st = StyleSheet.create({
   hudPanel: { paddingHorizontal: 10, paddingVertical: 6, gap: 4 },
   counters: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   counter: { flexDirection: 'row', gap: 4, alignItems: 'center' },
-  quest: { paddingHorizontal: 10, paddingVertical: 6, gap: 3, width: 180 },
+  buildBar: { position: 'absolute', left: 0, top: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  buildTrack: { flex: 1, height: 12, borderWidth: 2, borderColor: colors.ink, backgroundColor: colors.scroll },
+  buildFill: { height: '100%', backgroundColor: colors.questGreen },
+  buildTime: { fontFamily: fonts.stat, fontSize: 11, lineHeight: 14, color: colors.ink, backgroundColor: colors.vellum, borderWidth: 2, borderColor: colors.ink, paddingHorizontal: 3 },
   toast: { position: 'absolute', left: 12, right: 12 },
   toastText: { fontSize: 14, lineHeight: 19, paddingHorizontal: 12, paddingVertical: 8, textAlign: 'center' },
   sheetWrap: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(59,42,74,0.35)', justifyContent: 'center', padding: 20 },

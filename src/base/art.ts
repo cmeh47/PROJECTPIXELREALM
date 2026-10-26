@@ -1,6 +1,6 @@
 import { createPicture, Skia, type SkPicture } from '@shopify/react-native-skia';
 
-import { bubbleGrid, heartGrid, heroOverworld, houseGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
+import { bubbleGrid, heartGrid, heroOverworld, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, shackGrid, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
 import { Grid, PAL } from '../sprites/pixel';
 import { gridPicture } from '../sprites/render';
 import { staticGround, windFrames, type Px } from './ground';
@@ -28,6 +28,12 @@ export const stumpPicture = (s: number) => gridPicture('ow-stump', stumpGrid(), 
 export const housePicture = (s: number) => gridPicture('ow-house', houseGrid(0), s);
 export const oldManPicture = (frame: number, s: number) => gridPicture(`ow-oldman-${frame}`, oldManOverworld(frame), s);
 export const hutPicture = (s: number) => gridPicture('ow-hut-ruins', hutRuinsGrid(), s);
+// The shack in eight build steps (progress is rounded down to the step), plus the finished shack at 1.
+export const shackPicture = (progress: number, s: number) => {
+  const step = progress >= 1 ? 8 : Math.floor(Math.max(0, progress) * 8);
+  return gridPicture(`ow-shack-${step}`, shackGrid(step / 8), s);
+};
+export const hammerPicture = (frame: number, s: number) => gridPicture(`ow-hammer-${frame}`, hammerGrid(frame), s);
 export const bubblePicture = (s: number) => gridPicture('ow-bubble', bubbleGrid(), s);
 export const heartPicture = (s: number) => gridPicture('ow-heart', heartGrid(), s);
 export const leafPicture = (s: number) => gridPicture('ow-leaf', leafGrid(), s);

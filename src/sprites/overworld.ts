@@ -380,3 +380,117 @@ export function hutRuinsGrid(): Grid {
   g.outline(PAL.K);
   return g;
 }
+
+// The butcher's shack, 46 x 44 frame, and the stages of building it. Its stone footing sits 8 rows
+// lower in the frame than the ruins' (draw it 8 px higher to line them up). progress runs 0 to 1:
+// corner posts and a log pile, then plank walls rising, roof rafters, shingles filling in from the
+// eaves, and at 1 the finishing touches: a striped awning over the shop counter, sausages hanging
+// in the window, a ham on the sign and smoke-stained chimney.
+export const SHACK_W = 46;
+export const SHACK_H = 44;
+
+export function shackGrid(progress: number): Grid {
+  const g = new Grid(SHACK_W, SHACK_H);
+  const p = Math.max(0, Math.min(1, progress));
+  const done = p >= 1;
+  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+  const wallFrac = clamp((p - 0.12) / 0.4);
+  const roofFrac = clamp((p - 0.6) / 0.38);
+  // Stone footing.
+  for (let y = 35; y < 41; y++) {
+    for (let x = 2; x < 44; x++) {
+      const joint = (x + (Math.floor((y - 35) / 2) % 2) * 3) % 6 === 0;
+      g.set(x, y, y === 35 ? PAL.V : joint || y === 40 ? PAL.O : PAL.o);
+    }
+  }
+  // Roof: a gable with shingle courses, filling in from the eaves upward.
+  const roofTop = 6;
+  const roofBot = 21;
+  const roofRow = (y: number) => {
+    const half = 3 + Math.round(((y - roofTop) / (roofBot - roofTop)) * 19.5);
+    return { x0: 23 - half, x1: 22 + half };
+  };
+  if (p >= 0.5) {
+    // Rafters: the gable's frame, showing until the shingles cover it.
+    for (let y = roofTop; y <= roofBot; y++) {
+      const { x0, x1 } = roofRow(y);
+      g.set(x0, y, PAL.W);
+      g.set(x1, y, PAL.W);
+      if ((y - roofTop) % 5 === 4) for (let x = x0; x <= x1; x++) g.set(x, y, PAL.w);
+    }
+  }
+  // Chimney, behind the roof on the right.
+  if (roofFrac > 0.5) {
+    for (let y = 2; y < 12; y++) for (let x = 33; x < 37; x++) g.set(x, y, x === 36 || (y + x) % 4 === 0 ? PAL.O : PAL.o);
+    if (done) for (let x = 33; x < 37; x++) g.set(x, 2, PAL.P);
+  }
+  if (roofFrac > 0) {
+    const fromY = Math.round(roofBot - (roofBot - roofTop) * roofFrac);
+    for (let y = fromY; y <= roofBot; y++) {
+      const { x0, x1 } = roofRow(y);
+      for (let x = x0; x <= x1; x++) {
+        const course = (y - roofTop) % 3 === 2;
+        g.set(x, y, course ? PAL.r : x < x0 + 2 ? PAL.H : (x + y) % 7 === 0 ? PAL.r : PAL.R);
+      }
+    }
+  }
+  // Walls: vertical planks rising from the footing.
+  const wallTop = 21;
+  const wallBot = 34;
+  const wallFrom = Math.round(wallBot - (wallBot - wallTop) * wallFrac);
+  for (let y = wallFrom; y <= wallBot; y++) {
+    for (let x = 5; x < 41; x++) g.set(x, y, (x - 5) % 4 === 3 ? PAL.W : y === wallTop ? PAL.W : PAL.w);
+  }
+  // Corner posts stand from the start.
+  for (const px of [4, 40]) for (let y = 19; y <= wallBot; y++) g.set(px, y, PAL.W);
+  if (wallFrac >= 1) {
+    // Door, left of center.
+    for (let y = 25; y <= wallBot; y++) for (let x = 9; x < 16; x++) g.set(x, y, x === 9 || y === 25 ? PAL.P : PAL.W);
+    g.set(14, 30, PAL.b);
+  }
+  if (done) {
+    // Shop window with a counter, and sausages strung across the top.
+    for (let y = 25; y < 31; y++) for (let x = 22; x < 37; x++) g.set(x, y, PAL.P);
+    for (let x = 22; x < 37; x++) {
+      g.set(x, 25, PAL.W);
+      if (x % 3 !== 0) g.set(x, 26, x % 3 === 1 ? PAL.R : PAL.r);
+      g.set(x, 31, PAL.C);
+      g.set(x, 32, PAL.W);
+    }
+    for (let x = 23; x < 36; x += 4) g.set(x, 31, PAL.H);
+    // Striped awning with a scalloped edge.
+    for (let y = 21; y < 24; y++) {
+      for (let x = 20; x < 39; x++) {
+        if (y === 23 && x % 2 === 1) continue;
+        g.set(x, y, Math.floor((x - 20) / 2) % 2 ? PAL.H : PAL.R);
+      }
+    }
+    // A sign in the gable with a ham on it.
+    for (let y = 12; y < 18; y++) for (let x = 17; x < 29; x++) g.set(x, y, y === 12 || y === 17 || x === 17 || x === 28 ? PAL.W : PAL.C);
+    g.stamp(['.RRR..', 'RRRrr.', 'RRRrrV', '.rrr.V'], 20, 13);
+  }
+  // A pile of logs by the right corner while there's still building to do. It shrinks as he works.
+  if (!done && p < 0.75) {
+    const spots: [number, number][] = [[37, 41], [42, 41], [39, 39]];
+    const n = p < 0.25 ? 3 : p < 0.5 ? 2 : 1;
+    for (const [lx, ly] of spots.slice(0, n)) {
+      for (let x = lx; x < lx + 5; x++) {
+        g.set(x, ly, PAL.w);
+        g.set(x, ly + 1, PAL.W);
+      }
+      g.set(lx + 4, ly, PAL.S);
+      g.set(lx + 4, ly + 1, PAL.B);
+    }
+  }
+  g.outline(PAL.K);
+  return g;
+}
+
+// The butcher's hammer while he rebuilds: frame 0 raised, frame 1 striking. 7 x 8, drawn by his
+// right hand.
+export function hammerGrid(frame: number): Grid {
+  const g = new Grid(7, 8);
+  g.stamp(frame % 2 ? ['HPP...', 'PPPWWW', 'PPP...'] : ['HPP', 'PPP', 'PPP', '.W.', '.W.', '.W.'], frame % 2 ? 0 : 2, frame % 2 ? 4 : 0);
+  g.outline(PAL.K);
+  return g;
+}

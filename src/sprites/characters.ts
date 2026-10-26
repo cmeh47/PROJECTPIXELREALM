@@ -238,8 +238,8 @@ export function foeLayers(p: FoePose): Layer[] {
 export function foePortrait(kind: FoePose['kind'] = 'shroomie'): Grid {
   const g = new Grid(20, 20);
   if (kind === 'butcher') {
-    g.stamp(BUTCHER_BODY.slice(0, 6), 2, 13);
-    g.stamp(BUTCHER_HEAD, 3, 3);
+    g.stamp(BUTCHER_BODY, 5, 13);
+    g.stamp(BUTCHER_HEAD, 5, 5);
   } else {
     g.stamp(CAP, 1, 2);
     g.stamp(STEM, 4, 8);
@@ -393,78 +393,62 @@ export function butcherPortrait(mood: ButcherMood = 'calm', talking = false): Gr
   return g;
 }
 
-// The butcher in battle, facing left: a stocky bald old man in an apron, swinging a cleaver.
+// The butcher in battle, facing left: a stocky bald old man in an apron, swinging a cleaver. Built
+// on the hero's proportions (a 10 x 9 head over a short torso and legs) so the two read as a pair.
 // Uses the same pose fields as the Shroomie: ca/hx/hy aim the cleaver, tilt/capDy move the head.
 const BUTCHER_HEAD = [
-  '....SSSSSS....',
-  '..SSHHSSSSSS..',
-  '.SSHHSSSSSSSR.',
-  '.SSHSSSSSSSSRR',
-  'SSSSSSSSSSSSRR',
-  'SoooSSoooSSoRR',
-  'SSKSSSSKSSoooR',
-  'SSKSSSSKSSoOoo',
-  'SSSSRSSSSSoOoo',
-  'RRSSRSSSSSSoO.',
-  'oooooooSSSSR..',
-  'OoooooOSSSR...',
-  '.O...OSSRR....',
+  '..SSSSS...',
+  '.SSHHSSSS.',
+  'SSHSSSSSSR',
+  'SooSSSSoRR',
+  'SKSSSSooOR',
+  'RSSSSSoOR.',
+  'ooooSSSR..',
+  'OooOSSR...',
+  '.O..SS....',
 ];
-const BUTCHER_BODY = [
-  '...YYYYYYYYYG...',
-  '..YYVVVVVVYYGG..',
-  '.YYVVVVVVVVYGGG.',
-  '.YVVVVVVVVVVYGG.',
-  'YVVVVVVVVVVVCGG.',
-  'VVVVVVVVVVVVCGS.',
-  'VVVVVRVVVVVVCC..',
-  'VVVVRRVVVVVVCC..',
-  'VVVVVVVVVVVCC...',
-  'WWWWWWWWWWWWW...',
-  '.VVVVVVVVVVCPP..',
-  '.VVVVVVVVVCCPP..',
-  '..PPP...PPP.....',
-  '..PPP...PPP.....',
-  '.WWWW..WWWW.....',
-];
+const BUTCHER_BODY = ['.YVVVVVYG', 'YYVVVVVGG', 'SYVVRVVGS', 'WWWWWWWWW', 'VVVVVVVVC', '.VVVVVVC.'];
+const BUTCHER_LEG = ['PP.', 'PP.', 'PP.', 'WWW'];
+const BUTCHER_LEG_CROUCH = ['PP.', 'PP.', 'WWW'];
 
 function butcherLayers(p: FoePose): Layer[] {
   const g = new Grid(FOE_W, FOE_H);
   const bx = 36 + (p.x ?? 0);
   const gy = FOE_GROUND;
-  const cr = p.crouch ? 1 : 0;
-  const top = gy - BUTCHER_BODY.length + 1;
-  // Legs stay planted; the torso and head sink into a crouch.
-  g.stamp(BUTCHER_BODY.slice(12), bx - 8, top + 12);
-  g.stamp(BUTCHER_BODY.slice(0, 12), bx - 8, top + cr);
-  const cx0 = bx - 8 + (p.tilt ?? 0);
-  const cy0 = top - BUTCHER_HEAD.length + 3 + cr + (p.capDy ?? 0);
-  const shx = bx - 5;
-  const shy = top + 2 + cr;
-  const hx = shx + (p.hx ?? -2);
-  // He's taller than a Shroomie, so a raised hand lifts twice as far to clear his head.
-  const hy = shy + ((p.hy ?? 0) < 0 ? (p.hy ?? 0) * 2 : (p.hy ?? 0));
+  const legH = p.crouch ? 3 : 4;
+  const ty = gy - legH - 5;
+  const leg = p.crouch ? BUTCHER_LEG_CROUCH : BUTCHER_LEG;
+  g.stamp(leg, bx + 1, gy - legH);
+  g.stamp(BUTCHER_BODY, bx - 4, ty);
+  g.stamp(leg, bx - 3, gy - legH);
+  const cx0 = bx - 5 + (p.tilt ?? 0);
+  const cy0 = ty - 8 + (p.capDy ?? 0);
+  const shx = bx - 3;
+  const shy = ty + 2;
+  // At rest (no aim in the pose) he holds the cleaver low in front, like the hero's sword. A raised
+  // hand lifts half again as far, so the blade clears the top of his head.
+  const rest = p.ca == null;
+  const hx = shx + (rest ? -2 : (p.hx ?? -2));
+  const hy = shy + (rest ? 3 : (p.hy ?? 0) < 0 ? Math.round((p.hy ?? 0) * 1.5) : (p.hy ?? 0));
   // Arm and cleaver go on their own outlined grid: a short handle and a broad steel blade. Reared
   // back over his shoulder it sits behind his head; anywhere else it's in front of him.
   const arm = new Grid(FOE_W, FOE_H);
-  seg(arm, shx, shy, hx, hy, PAL.Y, 3);
-  const a = ((p.ca ?? -120) * Math.PI) / 180;
+  seg(arm, shx, shy, hx, hy, PAL.Y, 2);
+  const a = ((rest ? -165 : p.ca!) * Math.PI) / 180;
   const dx = Math.cos(a);
   const dy = Math.sin(a);
-  seg(arm, hx, hy, hx + dx * 5, hy + dy * 5, PAL.W, 2);
-  const tx = Math.round(hx + dx * 10);
-  const ty = Math.round(hy + dy * 10);
+  seg(arm, hx, hy, hx + dx * 3, hy + dy * 3, PAL.W, 1);
+  const tx = Math.round(hx + dx * 7);
+  const ty2 = Math.round(hy + dy * 7);
   // The blade: spine in blue, body in sky, the cutting edge in white.
-  for (let t = 5; t <= 12; t += 0.5) {
-    for (let n = -1.5; n <= 3.5; n += 0.5) {
-      const col = n < -0.5 ? PAL.G : n > 2.5 ? PAL.H : PAL.Y;
+  for (let t = 3.5; t <= 9; t += 0.5) {
+    for (let n = -1; n <= 2.5; n += 0.5) {
+      const col = n < -0.5 ? PAL.G : n > 1.5 ? PAL.H : PAL.Y;
       arm.set(hx + dx * t - dy * n, hy + dy * t + dx * n, col);
     }
   }
   arm.set(hx, hy, PAL.S);
   arm.set(hx + 1, hy, PAL.S);
-  arm.set(hx, hy + 1, PAL.S);
-  arm.set(hx + 1, hy + 1, PAL.S);
   arm.outline(PAL.K);
   const behind = dx > 0.2;
   if (!behind) g.stamp(BUTCHER_HEAD, cx0, cy0);
@@ -479,15 +463,16 @@ function butcherLayers(p: FoePose): Layer[] {
   if (p.smear) {
     const [a0, a1, r0, r1] = p.smear;
     const f = new Grid(FOE_W, FOE_H);
-    arc(f, shx, shy, r0, r1, a0, a1, [PAL.H, PAL.Y, PAL.Y, PAL.G, PAL.G, PAL.G]);
+    // The cleaver is shorter than a Shroomie's club, so its smear sweeps a tighter arc.
+    arc(f, shx, shy, Math.round(r0 * 0.6), Math.round(r1 * 0.65), a0, a1, [PAL.H, PAL.Y, PAL.Y, PAL.G, PAL.G, PAL.G]);
     layers.push({ grid: f, alpha: 1 });
   }
   layers.push({ grid: g, alpha: 1 });
   const fx = new Grid(FOE_W, FOE_H);
-  if (p.glint) star(fx, tx, ty - 1, 3, PAL.B, PAL.H);
-  if (p.spark) star(fx, tx, ty, p.spark, PAL.b, PAL.H);
+  if (p.glint) star(fx, tx, ty2 - 1, 3, PAL.B, PAL.H);
+  if (p.spark) star(fx, tx, ty2, p.spark, PAL.b, PAL.H);
   if (p.stars != null) {
-    const pos: [number, number][] = [[-7, -2], [0, -5], [7, -3], [2, -1]];
+    const pos: [number, number][] = [[-5, -2], [0, -4], [5, -3], [1, -1]];
     for (let i = 0; i < 3; i++) {
       const q = pos[(i + p.stars) % 4];
       star(fx, cx0 + 5 + q[0], cy0 + q[1], 1, PAL.B, PAL.b);
