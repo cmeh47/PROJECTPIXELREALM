@@ -18,7 +18,7 @@ Milestone 1 is the combat-feel prototype: one battle in `src/combat/`. The playe
 
 - Expo + React Native, React Native Skia (game scenes), Reanimated (animation, UI-thread timing), Gesture Handler (inputs)
 - Supabase: sign-in, Postgres, Realtime presence and broadcast, server functions for every shared change
-- Art: Aseprite. Sources in `art/`, exports in `assets/sprites/`
+- Art: Aseprite. Sources in `art/`, exports in `assets/sprites/`. Sounds: generators in `art/sounds/` (Python + numpy), exports in `assets/sounds/`, played with `expo-audio`
 
 ## Conventions
 
@@ -47,4 +47,4 @@ If `npx expo install` fails behind a proxy, prefix it with `EXPO_OFFLINE=1`.
 - `src/combat/`: `rules.ts` (numbers), `anims.ts` (12 fps frame tables), `useCombatInput.ts` (UI-thread timing), `BattleScene.tsx` (Skia canvas), `BattleScreen.tsx` (the battle and menus).
 - `src/ui/pixel.tsx`: framed panels, pixel buttons, bars, chips and icons.
 - `src/sprites/overworld.ts`: small top-down sprites for the base (hero walk cycle, hopping toadstool, trees, stump, cottage, "!" bubble).
-- `src/base/`: `map.ts` (layout, trees, grass and flower spots), `ground.ts` (ground recipe as plain pixels: cobbled path, pond, wind frames and gust timing, no Skia), `art.ts` (Skia pictures), `WindLayer.tsx` (swaying grass), `BaseScreen.tsx` (game loop, touch-to-walk, chopping, encounters, swirl into `BattleScreen`).
+- `src/base/`: `map.ts` (layout, trees, grass and flower spots), `ground.ts` (ground recipe as plain pixels: cobbled path, pond, wind frames and gust timing, no Skia), `art.ts` (Skia pictures), `WindLayer.tsx` (swaying grass), `CritterDialog.tsx` (RPG text box when you tap a critter), `BaseScreen.tsx` (game loop, touch-to-walk, chopping, encounters, swirl into `BattleScreen`).

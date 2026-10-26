@@ -59,7 +59,7 @@ const FOE_REACH = 36;
 const PANEL_H = 214;
 
 const HERO_NAMES = ['You', 'Mint Ranger', 'Gold Warden', 'Sky Mage'];
-const FOE_NAMES = ['Mossback Toadstool', 'Lilac Toadstool', 'Gilded Toadstool'];
+const FOE_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie'];
 
 export type Encounter = { look: number; name: string };
 export type BattleResult = 'won' | 'lost' | 'tamed' | 'fled';
@@ -97,7 +97,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   const [ap, setAp] = useState(AP_START);
   const [chain, setChain] = useState(0);
   const [hint, setHint] = useState('');
-  const [line, setLine] = useState(`A ${encounter?.name ?? 'Mossback Toadstool'} blocks the path. It grips its club and sways.`);
+  const [line, setLine] = useState(`A ${encounter?.name ?? 'Mossback Shroomie'} blocks the path. It grips its club and sways.`);
   const [pops, setPops] = useState<Pop[]>([]);
   const [sel, setSel] = useState(0);
   const [treat, setTreat] = useState(false);
@@ -461,7 +461,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   const finish = useCallback((kind: 'won' | 'tamed') => {
     setCheer(true);
     setFocus(null);
-    setLine(kind === 'tamed' ? 'The toadstool wants to come home with you!' : 'The last toadstool flops over. Victory!');
+    setLine(kind === 'tamed' ? 'The Shroomie wants to come home with you!' : 'The last Shroomie flops over. Victory!');
     setPhase(kind);
     haptic('success');
   }, []);
@@ -520,7 +520,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     retarget();
     setHint('');
     const anyBroken = active(g0).some((j) => g0.foes[j].broken);
-    setLine(anyBroken ? 'A toadstool is Broken! Hit it hard, or try to tame it.' : 'The toadstools steady themselves. Your turn.');
+    setLine(anyBroken ? 'A Shroomie is Broken! Hit it hard, or try to tame it.' : 'The Shroomies steady themselves. Your turn.');
     setPhase('menu');
   }, [allyAct, finish, foeAttack, geo, playFoe, pop, retarget, setFoePose, setHeroPose]);
 
@@ -728,7 +728,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     }
     const you = g.hero(0);
     pop("CAN'T ESCAPE", colors.rose, you.x + 6, g.above(you, 48));
-    setLine('The toadstools block your way!');
+    setLine('The Shroomies block your way!');
     await wait(500);
     await restOfRound();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -751,7 +751,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
       setTreat(false);
       setTamed(0);
       setPops([]);
-      setLine(nextFull ? 'Your party of four meets a pack of toadstools. Tap one to target it.' : 'Another Mossback Toadstool wanders out of the fog.');
+      setLine(nextFull ? 'Your party of four meets a pack of Shroomies. Tap one to target it.' : 'Another Mossback Shroomie wanders out of the fog.');
       setHint('');
       setCheer(false);
       setPhase('menu');
@@ -801,7 +801,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         : phase === 'flee'
           ? "You keep the loot found so far, but lose this room's rewards. A failed flee costs your turn."
           : line;
-  const tamedName = g0.foes.find((f) => f.out === 'tamed')?.name ?? 'Mossback Toadstool';
+  const tamedName = g0.foes.find((f) => f.out === 'tamed')?.name ?? 'Mossback Shroomie';
   const downed = g0.foes.filter((f) => f.out === 'down').length;
   const wonText = party
     ? `The pack is cleared. +40 XP each for the party, and ${3 * downed} wood for the base.`
@@ -1093,7 +1093,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                     {guarding ? (
                       <Text style={[t.statSoft, { textAlign: 'center', marginTop: 6 }]}>TAP ANYWHERE TO PARRY · SWIPE TO DODGE</Text>
                     ) : !hint ? (
-                      <Text style={[t.statSoft, { textAlign: 'center' }]}>{party ? 'THE BATTLE PLAYS OUT' : 'THE TOADSTOOL IS ACTING'}</Text>
+                      <Text style={[t.statSoft, { textAlign: 'center' }]}>{party ? 'THE BATTLE PLAYS OUT' : 'THE SHROOMIE IS ACTING'}</Text>
                     ) : null}
                   </View>
                 </Framed>
@@ -1103,15 +1103,15 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                 <Framed style={{ flex: 1 }} fill={phase === 'lost' ? colors.vellum : phase === 'tamed' ? colors.mint : colors.butter}>
                   <View style={{ padding: 12, gap: 6, flex: 1 }}>
                     <Text style={[t.title, { fontSize: 24, lineHeight: 30 }]}>
-                      {phase === 'won' ? 'Victory!' : phase === 'lost' ? 'Your party rests...' : phase === 'tamed' ? 'New pet!' : 'Got away!'}
+                      {phase === 'won' ? 'Victory!' : phase === 'lost' ? 'Your party rests...' : phase === 'tamed' ? 'New critter!' : 'Got away!'}
                     </Text>
                     <Text style={[t.body, { fontSize: 14, lineHeight: 19 }]}>
                       {phase === 'won'
                         ? wonText
                         : phase === 'lost'
-                          ? 'The toadstools win this round. Try reading the wind-up before you tap.'
+                          ? 'The Shroomies win this round. Try reading the wind-up before you tap.'
                           : phase === 'tamed'
-                            ? `The ${tamedName} is heading to your base. It will work as a Forager: +10% wood.${party ? ' The rest of the pack fled.' : ''}`
+                            ? `The ${tamedName} is heading to your base as your new critter. Tap it there to say hi!${party ? ' The rest of the pack fled.' : ''}`
                             : encounter
                               ? `You backed off. The ${encounter.name} is still wandering your base.`
                               : 'You slipped away into the fog. No rewards from this room.'}

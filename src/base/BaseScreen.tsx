@@ -23,6 +23,7 @@ import {
   treePicture,
 } from './art';
 import { HOUSE, HOUSE_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
+import { CritterDialog, type Critter } from './CritterDialog';
 import { WindLayer } from './WindLayer';
 
 // ---------- Tuning ----------
@@ -31,11 +32,11 @@ const STEP_MS = 1000 / 8; // walk cycle: 8 frames per second, DS style
 const CHOP_MS = 420; // one swing
 const CHOPS_PER_TREE = 3;
 const REGROW_MS = 60_000;
-const TOUCH_RADIUS = 11; // bumping into a toadstool
-const GRACE_MS = 2500; // after fleeing or losing, toadstools ignore you for a moment
+const TOUCH_RADIUS = 11; // bumping into a Shroomie
+const GRACE_MS = 2500; // after fleeing or losing, Shroomies ignore you for a moment
 const MAX_VISITORS = 4;
 
-const TOAD_NAMES = ['Mossback Toadstool', 'Lilac Toadstool', 'Gilded Toadstool', 'Mossback Toadstool'];
+const TOAD_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie', 'Mossback Shroomie'];
 const TOAD_LOOKS = [0, 1, 2, 0];
 
 type Toad = {
@@ -51,7 +52,7 @@ type Toad = {
   from: Pt;
   to: Pt;
   mode: 'idle' | 'squash' | 'air';
-  status: 'wild' | 'gone' | 'pet';
+  status: 'wild' | 'gone' | 'critter';
 };
 type Tree = (typeof TREES)[number] & { hits: number; felledAt: number | null; flash: number; shake: number };
 type Leaf = { x: number; y: number; vx: number; vy: number; life: number };
@@ -102,6 +103,7 @@ export function BaseScreen() {
   const reduceMotion = useReducedMotion();
   const [battle, setBattle] = useState<{ toad: number; key: number } | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [talk, setTalk] = useState<Critter | null>(null);
 
   // World state, mutated by the game loop.
   const hero = useRef({ x: SPAWN.x, y: SPAWN.y, dir: 'down' as Dir, frame: 0, walkMs: 0, grace: 0 });
@@ -203,14 +205,15 @@ export function BaseScreen() {
           for (let k = 0; k < 8; k++) leaves.current.push({ x: td.x, y: td.y - 6, vx: rand(-30, 30), vy: rand(-50, -10), life: 600 });
           setTimeout(() => pop('+3 WOOD', colors.butter, td.x, td.y - 20), 300);
         } else if (result === 'tamed') {
-          td.status = 'pet';
-          // Pets settle by the cottage.
+          td.status = 'critter';
+          // Critters settle by the cottage.
           td.home = { x: HOUSE.x + 10 + id * 12, y: HOUSE.y + 66 + (id % 2) * 8 };
           td.x = td.home.x;
           td.y = td.home.y;
           td.from = td.home;
           td.to = td.home;
-          setTimeout(() => pop('NEW PET!', colors.mint, td.x, td.y - 20, { big: true }), 300);
+          setTimeout(() => pop('NEW CRITTER!', colors.mint, td.x, td.y - 20, { big: true }), 300);
+          setTimeout(() => setBanner(`Your ${td.name} moved in by the cottage. Tap it to say hi!`), 700);
         } else if (result === 'fled') {
           // Step back out of reach and get a moment's grace.
           const dx = h.x - td.x;
@@ -340,12 +343,12 @@ export function BaseScreen() {
           }
         }
 
-        // Toadstools wander in little hops around home; pets stay by the cottage.
+        // Shroomies wander in little hops around home; critters stay by the cottage.
         for (const td of toads.current) {
           if (td.status === 'gone') continue;
           td.t -= dt;
           if (td.mode === 'idle' && td.t <= 0) {
-            const r = td.status === 'pet' ? 14 : 34;
+            const r = td.status === 'critter' ? 14 : 34;
             const a = Math.random() * Math.PI * 2;
             const to = { x: td.home.x + Math.cos(a) * rand(0, r), y: td.home.y + Math.sin(a) * rand(0, r) * 0.7 };
             if (blocked(to.x, to.y)) {
@@ -443,6 +446,22 @@ export function BaseScreen() {
     const g = goal.current;
     g.downAt = Date.now();
     chop.current = null;
+    // One of your critters? Stop and chat. It pauses its hopping while the box is open.
+    const pal = toads.current.find((td) => td.status === 'critter' && Math.abs(p.x - td.x) < 10 && p.y > td.y - 17 && p.y < td.y + 4);
+    if (pal) {
+      const h = hero.current;
+      const dx = pal.x - h.x;
+      const dy = pal.y - h.y;
+      h.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+      h.frame = 0;
+      pal.mode = 'idle';
+      pal.hop = 0;
+      pal.t = 4000;
+      goal.current = { to: null, holding: false, chop: null, downAt: g.downAt };
+      setTalk({ name: pal.name, look: pal.look });
+      force();
+      return;
+    }
     // A tree? Walk to the nearest free side of its trunk, then chop.
     const tr = trees.current.find((tt) => !tt.border && !tt.felledAt && p.x > tt.x - 13 && p.x < tt.x + 13 && p.y > tt.y - TREE_H + 4 && p.y < tt.y + 3);
     if (tr) {
@@ -488,7 +507,7 @@ export function BaseScreen() {
   // ---------- Draw list, back to front ----------
   const h = hero.current;
   const wild = toads.current.filter((td) => td.status === 'wild').length;
-  const pets = toads.current.filter((td) => td.status === 'pet').length;
+  const critters = toads.current.filter((td) => td.status === 'critter').length;
   type Item = { y: number; key: string; node: ReactNode };
   const items: Item[] = [];
   items.push({ y: HOUSE.y + 50, key: 'house', node: <Static key="house" pic={housePicture(s)} x={HOUSE.x} y={HOUSE.y} s={s} /> });
@@ -553,7 +572,7 @@ export function BaseScreen() {
                   </Group>
                 ))}
                 {toads.current.map((td, i) =>
-                  td.status === 'pet' ? <Heart key={`hrt${i}`} x={tx[i]} y={ty[i]} beat={beat} s={s} /> : null,
+                  td.status === 'critter' ? <Heart key={`hrt${i}`} x={tx[i]} y={ty[i]} beat={beat} s={s} /> : null,
                 )}
                 {alert != null ? <Bubble x={tx[alert]} y={ty[alert]} scale={bubble} s={s} /> : null}
               </Group>
@@ -576,13 +595,13 @@ export function BaseScreen() {
                     <Icon pic={logPicture(2)} w={28} h={18} />
                     <Text style={t.stat}>{wood}</Text>
                   </View>
-                  <View style={st.counter} accessibilityLabel={`${wild} wild toadstools`}>
+                  <View style={st.counter} accessibilityLabel={`${wild} wild Shroomies`}>
                     <Icon pic={toadOwPicture(0, 0, false, 1)} w={16} h={16} />
                     <Text style={t.stat}>{wild}</Text>
                   </View>
-                  <View style={st.counter} accessibilityLabel={`${pets} pets`}>
+                  <View style={st.counter} accessibilityLabel={`${critters} critters`}>
                     <Icon pic={heartPicture(1)} w={9} h={8} />
-                    <Text style={t.stat}>{pets}</Text>
+                    <Text style={t.stat}>{critters}</Text>
                   </View>
                 </View>
               </View>
@@ -608,8 +627,8 @@ export function BaseScreen() {
                 <Text style={[t.body, st.toastText]}>
                   {banner ??
                     (wild === 0
-                      ? `Your base is clear! ${pets ? `${pets} ${pets === 1 ? 'pet is' : 'pets are'} settling in by the cottage.` : 'Time to build.'}`
-                      : 'Hold anywhere to walk. Tap a tree to chop it. Bump into a toadstool to battle.')}
+                      ? `Your base is clear! ${critters ? `${critters} ${critters === 1 ? 'critter is' : 'critters are'} settling in by the cottage. Tap one to say hi.` : 'Time to build.'}`
+                      : 'Hold anywhere to walk. Tap a tree to chop it. Bump into a Shroomie to battle.')}
                 </Text>
               </Framed>
             </View>
@@ -633,6 +652,8 @@ export function BaseScreen() {
           </View>
         ) : null}
         <FlashOverlay value={flash} />
+
+        {talk ? <CritterDialog critter={talk} bottom={insets.bottom + 14} onClose={() => setTalk(null)} /> : null}
 
         {invite ? (
           <View style={st.sheetWrap}>
@@ -705,7 +726,7 @@ function Heart({ x, y, beat, s }: { x: SharedValue<number>; y: SharedValue<numbe
 }
 
 function Bubble({ x, y, scale, s }: { x: SharedValue<number>; y: SharedValue<number>; scale: SharedValue<number>; s: number }) {
-  // Pops out of the toadstool's cap, anchored at the tail.
+  // Pops out of the Shroomie's cap, anchored at the tail.
   const transform = useDerivedValue(() => {
     const k = scale.value;
     const ax = Math.round(x.value) * s;

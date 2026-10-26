@@ -40,7 +40,8 @@ Decided on 2026-10-25.
 | Topic | Decision |
 |---|---|
 | Ownership | Every player owns a base: a meadow lot with their cottage. Visitors come by invite, 4 players on a base at most (the owner plus three). |
-| Starting lot | Green grass, choppable trees for wood, a pond and 4 wild Mossback Toadstools to clear. |
+| Starting lot | Green grass, choppable trees for wood, a pond and 4 wild Shroomies to clear. |
 | Trees | Tap a tree to walk over and chop it: 3 swings, 1 wood each. It leaves a stump that regrows after a minute. The ring of trees on the edge can't be chopped. |
-| Toadstools | Touching one pops a "!" bubble over its head, then a swirl transition starts the battle. Win: it's gone and drops 3 wood. Tame: it becomes a pet by the cottage. Flee: you step back and get a moment of grace. Lose: you wake up at your door. |
+| Shroomies | The mushroom monsters (once called toadstools). Touching one pops a "!" bubble over its head, then a swirl transition starts the battle. Win: it's gone and drops 3 wood. Tame: it becomes a critter by the cottage. Flee: you step back and get a moment of grace. Lose: you wake up at your door. |
 | Controls | Touch to walk: hold anywhere and the hero walks toward your finger; a quick tap walks to the spot. Pending Cameron's pick between touch, a joystick, or a D-pad. |
+| Critters | Tamed monsters are called critters (not pets). Tap one on your base to chat: an RPG text box with its portrait, name and voice. A Shroomie says "...WeeeeeiiiieWeWeWeeeiiiiii...". |

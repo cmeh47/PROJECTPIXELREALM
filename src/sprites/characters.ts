@@ -232,11 +232,72 @@ export function foeLayers(p: FoePose): Layer[] {
   return layers;
 }
 
-// The toadstool's head for portraits and the tamed-pet card.
+// The Shroomie's head for the battle log and the new-critter card.
 export function foePortrait(): Grid {
   const g = new Grid(20, 20);
   g.stamp(CAP, 1, 2);
   g.stamp(STEM, 4, 8);
+  g.outline(PAL.K);
+  return g;
+}
+
+// A Shroomie's dialogue portrait, 40 x 40, drawn larger and with more shading than the battle
+// sprite: a dome cap lit from the top left with vellum spots, peach gills, a round face with
+// shining eyes and rosy cheeks. talking opens the mouth for the "weee" frames.
+export const SHROOMIE_PORTRAIT = 40;
+
+export function shroomiePortrait(look = 0, talking = false): Grid {
+  const g = new Grid(SHROOMIE_PORTRAIT, SHROOMIE_PORTRAIT);
+  const swap = FOE_LOOKS[look % FOE_LOOKS.length];
+  const cap = PAL[swap.R ?? 'R'];
+  const capDeep = PAL[swap.r ?? 'r'];
+  // Face and stem: a soft rounded block, shaded on the right.
+  for (let y = 19; y < 38; y++) {
+    for (let x = 9; x < 31; x++) {
+      const corner = (y > 34 && (x < 11 || x > 28)) || (y === 37 && (x < 12 || x > 27));
+      if (corner) continue;
+      g.set(x, y, x > 26 || y > 35 ? PAL.C : PAL.V);
+    }
+  }
+  // Cap: a dome over the face with a curled rim.
+  const cx = 20;
+  const cy = 18;
+  for (let y = 1; y < 24; y++) {
+    for (let x = 0; x < 40; x++) {
+      const dx = (x - cx + 0.5) / 19.5;
+      const dy = (y - cy) / 16.5;
+      if (dx * dx + dy * dy > 1 || y > 21 + Math.round(Math.abs(dx) * 2)) continue;
+      const rimShade = dx * dx + dy * dy > 0.78 && (dx > 0.1 || dy > 0.1);
+      g.set(x, y, y > 18 || rimShade ? capDeep : cap);
+    }
+  }
+  // Gills peeking under the rim.
+  for (let x = 6; x < 34; x++) g.set(x, 22 + Math.round(Math.abs(x - 19.5) / 9), x % 3 === 0 ? PAL.S : PAL.C);
+  // Spots, each with a shaded lower-right edge, and a glint on the dome.
+  const spot = (sx: number, sy: number, r: number) => {
+    for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r * 0.5) g.set(sx + x, sy + y, x + y > r - 1 ? PAL.C : PAL.V);
+  };
+  spot(11, 10, 3);
+  spot(24, 6, 2);
+  spot(29, 14, 3);
+  spot(18, 15, 1);
+  [[8, 6], [9, 5], [10, 4], [7, 8]].forEach(([x, y]) => g.set(x, y, PAL.H));
+  // Eyes: tall ovals with two shines each.
+  for (const ex of [14, 24]) {
+    for (let y = 25; y < 30; y++) for (let x = ex; x < ex + 3; x++) if (!((y === 25 || y === 29) && x !== ex + 1)) g.set(x, y, PAL.K);
+    g.set(ex + 1, 26, PAL.H);
+    g.set(ex + 2, 26, PAL.H);
+    g.set(ex, 28, PAL.P);
+  }
+  // Rosy cheeks stay rose whatever the cap color.
+  for (const bx of [11, 27]) for (let x = bx; x < bx + 3; x++) g.set(x, 31, PAL.R);
+  // Mouth: a little smile, or an open "o" mid-"weee".
+  if (talking) {
+    [[19, 31], [20, 31], [18, 32], [21, 32], [18, 33], [21, 33], [19, 34], [20, 34]].forEach(([x, y]) => g.set(x, y, PAL.K));
+    [[19, 32], [20, 32], [19, 33], [20, 33]].forEach(([x, y]) => g.set(x, y, PAL.r));
+  } else {
+    [[18, 31], [19, 32], [20, 32], [21, 31]].forEach(([x, y]) => g.set(x, y, PAL.K));
+  }
   g.outline(PAL.K);
   return g;
 }
