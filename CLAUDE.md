@@ -47,4 +47,4 @@ If `npx expo install` fails behind a proxy, prefix it with `EXPO_OFFLINE=1`.
 - `src/combat/`: `rules.ts` (numbers), `anims.ts` (12 fps frame tables), `useCombatInput.ts` (UI-thread timing), `BattleScene.tsx` (Skia canvas), `BattleScreen.tsx` (the battle and menus).
 - `src/ui/pixel.tsx`: framed panels, pixel buttons, bars, chips and icons.
 - `src/sprites/overworld.ts`: small top-down sprites for the base (hero walk cycle, hopping toadstool, trees, stump, cottage, "!" bubble).
-- `src/base/`: `map.ts` (layout, trees, collisions), `art.ts` (ground and sprite pictures), `BaseScreen.tsx` (game loop, touch-to-walk, chopping, encounters, swirl into `BattleScreen`).
+- `src/base/`: `map.ts` (layout, trees, grass and flower spots), `ground.ts` (ground recipe as plain pixels: cobbled path, pond, wind frames and gust timing, no Skia), `art.ts` (Skia pictures), `WindLayer.tsx` (swaying grass), `BaseScreen.tsx` (game loop, touch-to-walk, chopping, encounters, swirl into `BattleScreen`).

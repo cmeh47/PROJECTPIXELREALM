@@ -15,11 +15,13 @@ export const SPAWN = { x: DOOR.x, y: DOOR.y + 14 };
 
 export const POND = { x: 328, y: 316, rx: 36, ry: 22 };
 
-// Path: from the door down to a little plaza, then east toward the pond.
+// Path: from the door down to a little plaza, then east toward the pond. It starts under the
+// cottage wall, and every top and bottom edge sits on a cobblestone course line (y = 1 mod 5),
+// so no row of stones is cut in half.
 export const PATH: { x: number; y: number; w: number; h: number }[] = [
-  { x: DOOR.x - 12, y: DOOR.y - 2, w: 24, h: 140 },
-  { x: DOOR.x - 32, y: DOOR.y + 130, w: 64, h: 40 },
-  { x: DOOR.x + 30, y: DOOR.y + 140, w: 70, h: 20 },
+  { x: DOOR.x - 12, y: DOOR.y - 7, w: 24, h: 140 },
+  { x: DOOR.x - 32, y: DOOR.y + 128, w: 64, h: 41 },
+  { x: DOOR.x + 30, y: DOOR.y + 138, w: 70, h: 21 },
 ];
 
 export const TOAD_SPAWNS: Pt[] = [
@@ -29,7 +31,8 @@ export const TOAD_SPAWNS: Pt[] = [
   { x: 300, y: 452 },
 ];
 
-function rng(seed: number) {
+// A small seeded generator, so the lot looks the same every time it loads.
+export function rng(seed: number) {
   let x = seed;
   return () => {
     x = (x * 1103515245 + 12345) % 2147483648;
@@ -80,19 +83,17 @@ export const TREES: TreeSpot[] = (() => {
   return out;
 })();
 
-// Ground details, generated once: grass tufts, flowers and tall-grass patches.
-export type Detail = { x: number; y: number; kind: 'tuft' | 'tuft2' | 'flower' | 'clover' | 'pebble'; color?: string };
+// Ground details, generated once: grass tufts, taller grass clumps, flowers and clover. Grass and
+// flowers sway in the wind (see ground.ts); clover stays flat.
+export type Detail = { x: number; y: number; kind: 'tuft' | 'tuft2' | 'tall' | 'flower' | 'clover'; color?: string; variant?: number };
 
 export const DETAILS: Detail[] = (() => {
   const rand = rng(5);
   const out: Detail[] = [];
   for (let i = 0; i < 760; i++) {
     const p = { x: Math.floor(rand() * MAP_W), y: Math.floor(rand() * MAP_H) };
-    if (inPond(p, 3) || inRect(p, HOUSE_BOX, 2)) continue;
-    if (onPath(p, 1)) {
-      if (rand() < 0.25) out.push({ ...p, kind: 'pebble' });
-      continue;
-    }
+    // Grass keeps a little clear of the path: the edge tufts in ground.ts dress that rim.
+    if (inPond(p, 3) || inRect(p, HOUSE_BOX, 2) || onPath(p, 4)) continue;
     const r = rand();
     out.push({ ...p, kind: r < 0.5 ? 'tuft' : r < 0.75 ? 'tuft2' : r < 0.93 ? 'clover' : 'flower', color: ['R', 'B', 'H', 'Y'][Math.floor(rand() * 4)] });
   }
@@ -101,6 +102,19 @@ export const DETAILS: Detail[] = (() => {
     const bed = { x: HOUSE.x + 2 + (k % 9) * 6, y: HOUSE.y + 56 + Math.floor(k / 9) * 5 + (k % 2) };
     if (onPath(bed, 2)) continue;
     out.push({ x: HOUSE.x + 2 + (k % 9) * 6, y: HOUSE.y + 56 + Math.floor(k / 9) * 5 + (k % 2), kind: 'flower', color: k % 3 === 0 ? 'B' : 'R' });
+  }
+  // Taller grass in small patches: at the foot of meadow trees and out in the open. Its own seed,
+  // so the tufts and flowers above keep their places.
+  const tall = rng(9);
+  const centers: Pt[] = TREES.filter((t) => !t.border && tall() < 0.55).map((t) => ({ x: t.x + (tall() < 0.5 ? -11 : 8), y: t.y + 2 }));
+  for (let k = 0; k < 14; k++) centers.push({ x: 24 + Math.floor(tall() * (MAP_W - 48)), y: 60 + Math.floor(tall() * (MAP_H - 80)) });
+  for (const c of centers) {
+    const n = 2 + Math.floor(tall() * 3);
+    for (let j = 0; j < n; j++) {
+      const p = { x: c.x + Math.floor(tall() * 14) - 7, y: c.y + Math.floor(tall() * 8) - 4 };
+      if (inPond(p, 6) || inRect(p, HOUSE_BOX, 6) || onPath(p, 6) || Math.hypot(p.x - SPAWN.x, p.y - SPAWN.y) < 14) continue;
+      out.push({ ...p, kind: 'tall', variant: Math.floor(tall() * 2) });
+    }
   }
   return out;
 })();

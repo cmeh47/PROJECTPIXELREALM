@@ -3,8 +3,8 @@ import { createPicture, Skia, type SkPicture } from '@shopify/react-native-skia'
 import { bubbleGrid, heartGrid, heroOverworld, houseGrid, leafGrid, logGrid, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
 import { Grid, PAL } from '../sprites/pixel';
 import { gridPicture } from '../sprites/render';
-import { colors } from '../theme';
-import { DETAILS, HOUSE_BOX, MAP_H, MAP_W, PATH, POND, inPond, onPath } from './map';
+import { staticGround, windFrames, type Px } from './ground';
+import { MAP_H, MAP_W } from './map';
 
 // Skia pictures for the base map, cached per scale.
 
@@ -49,124 +49,33 @@ export function swipePicture(flip: boolean, s: number) {
   return gridPicture(`ow-swipe-${flip ? 1 : 0}`, g, s);
 }
 
-// The ground: meadow, path, pond and scattered details, as one picture.
-export function groundPicture(s: number) {
-  return cached(`ow-ground-${s}`, () =>
-    createPicture(
-      (canvas) => {
-        const paint = Skia.Paint();
-        const px = (x: number, y: number, w: number, h: number, c: string, a = 1) => {
-          paint.setColor(Skia.Color(c));
-          paint.setAlphaf(a);
-          canvas.drawRect(Skia.XYWHRect(x * s, y * s, w * s, h * s), paint);
-        };
-        // Meadow with a soft two-tone tile pattern, like DS grass.
-        px(0, 0, MAP_W, MAP_H, colors.mint);
-        for (let ty = 0; ty < MAP_H; ty += 16) {
-          for (let tx = 0; tx < MAP_W; tx += 16) {
-            if (((tx + ty) / 16) % 2 === 0) {
-              px(tx + 6, ty + 7, 1, 1, colors.white, 0.35);
-              px(tx + 13, ty + 2, 1, 1, colors.white, 0.35);
-              continue;
-            }
-            px(tx + 3, ty + 4, 1, 1, colors.questGreen, 0.35);
-            px(tx + 11, ty + 10, 1, 1, colors.questGreen, 0.35);
-            px(tx + 12, ty + 9, 1, 1, colors.questGreen, 0.35);
-          }
-        }
-        // Path: pastel cobblestones. Mortar first, then rounded stones in staggered courses, each
-        // with a vellum glint on top and a soft shadow underneath. The rim is a row of stoneDeep.
-        for (const r of PATH) px(r.x, r.y, r.w, r.h, colors.stoneDeep);
-        const inner = (x: number, y: number) => onPath({ x, y }, -1);
-        let seed = 7;
-        const rnd = () => {
-          seed = (seed * 1103515245 + 12345) % 2147483648;
-          return seed / 2147483648;
-        };
-        // One set of courses for the whole map, so stones run on unbroken where paths meet.
-        const top = Math.min(...PATH.map((r) => r.y)) - 4;
-        const bottom = Math.max(...PATH.map((r) => r.y + r.h));
-        const left = Math.min(...PATH.map((r) => r.x)) - 8;
-        const right = Math.max(...PATH.map((r) => r.x + r.w));
-        for (let y = top, row = 0; y < bottom; y += 5, row++) {
-          let x = left - (row % 2) * 3;
-          while (x < right) {
-            const w = 4 + Math.floor(rnd() * 3);
-            for (let j = 0; j < 4; j++) {
-              for (let i = 0; i < w; i++) {
-                const corner = (i === 0 || i === w - 1) && (j === 0 || j === 3);
-                const cx = x + i;
-                const cy = y + j;
-                if (corner || !inner(cx, cy)) continue;
-                px(cx, cy, 1, 1, j === 0 && i > 0 && i < w - 2 ? colors.vellum : colors.stone);
-                if (j === 3 && i > 0) px(cx, cy, 1, 1, colors.inkSoft, 0.18);
-              }
-            }
-            x += w + 1;
-          }
-        }
-        // Stones that ended up as a sliver along the rim read as noise; the rim row stays clean.
-        for (let y = 0; y < MAP_H; y++) {
-          for (let x = 0; x < MAP_W; x++) {
-            if (!onPath({ x, y })) continue;
-            const edge = !onPath({ x: x + 1, y }) || !onPath({ x: x - 1, y }) || !onPath({ x, y: y + 1 }) || !onPath({ x, y: y - 1 });
-            if (edge) px(x, y, 1, 1, colors.stoneDeep);
-            else if (!onPath({ x, y: y + 2 })) px(x, y, 1, 1, colors.stoneDeep);
-          }
-        }
-        // A one-pixel shade on the grass below the path so it sits into the meadow.
-        for (let y = 0; y < MAP_H; y++) {
-          for (let x = 0; x < MAP_W; x++) {
-            if (!onPath({ x, y }) && onPath({ x, y: y - 1 })) px(x, y, 1, 1, colors.questGreen, 0.45);
-          }
-        }
-        // Pond: ink rim, mana-blue shore, sky water, lily pads and sparkles.
-        for (let y = POND.y - POND.ry - 3; y <= POND.y + POND.ry + 3; y++) {
-          for (let x = POND.x - POND.rx - 3; x <= POND.x + POND.rx + 3; x++) {
-            const p = { x, y };
-            if (inPond(p)) px(x, y, 1, 1, inPond(p, -3) ? colors.sky : colors.manaBlue);
-            else if (inPond(p, 1)) px(x, y, 1, 1, colors.ink);
-          }
-        }
-        for (const [lx, ly] of [[POND.x - 14, POND.y - 4], [POND.x + 12, POND.y + 8]]) {
-          px(lx, ly, 5, 3, colors.questGreen);
-          px(lx + 1, ly - 1, 3, 1, colors.questGreen);
-          px(lx + 2, ly, 1, 2, colors.mint);
-        }
-        for (const [sx, sy] of [[POND.x - 22, POND.y - 10], [POND.x + 4, POND.y - 12], [POND.x + 20, POND.y - 2], [POND.x - 4, POND.y + 12]]) {
-          px(sx, sy, 3, 1, colors.white);
-        }
-        // Details.
-        const tone: Record<string, string> = { R: colors.rose, B: colors.butter, H: colors.white, Y: colors.sky };
-        for (const d of DETAILS) {
-          if (d.kind === 'tuft') {
-            px(d.x, d.y, 1, 2, colors.questGreen);
-            px(d.x + 2, d.y, 1, 2, colors.questGreen);
-            px(d.x + 1, d.y + 1, 1, 1, colors.questGreen);
-          } else if (d.kind === 'tuft2') {
-            px(d.x, d.y + 1, 1, 1, colors.questGreen);
-            px(d.x + 1, d.y, 1, 2, colors.questGreen);
-            px(d.x + 2, d.y + 1, 1, 1, colors.questGreen);
-            px(d.x + 1, d.y - 1, 1, 1, colors.white, 0.6);
-          } else if (d.kind === 'clover') {
-            px(d.x, d.y, 2, 2, colors.questGreen, 0.55);
-            px(d.x + 2, d.y + 1, 2, 2, colors.questGreen, 0.55);
-          } else if (d.kind === 'pebble') {
-            // Paths are cobbled now; no loose pebbles on them.
-          } else {
-            const c = tone[d.color ?? 'R'];
-            px(d.x + 1, d.y, 1, 1, c);
-            px(d.x, d.y + 1, 1, 1, c);
-            px(d.x + 2, d.y + 1, 1, 1, c);
-            px(d.x + 1, d.y + 2, 1, 1, c);
-            px(d.x + 1, d.y + 1, 1, 1, colors.butter);
-            px(d.x + 1, d.y + 3, 1, 1, colors.questGreen);
-          }
-        }
-        // A soft ink shadow where the cottage meets the grass.
-        px(HOUSE_BOX.x + 2, HOUSE_BOX.y + HOUSE_BOX.h, HOUSE_BOX.w - 2, 2, colors.ink, 0.1);
-      },
-      { width: MAP_W * s, height: MAP_H * s },
-    ),
+// Records a list of ground pixels (see ground.ts) at scale s.
+function record(list: Px[], s: number) {
+  return createPicture(
+    (canvas) => {
+      const paint = Skia.Paint();
+      for (const p of list) {
+        paint.setColor(Skia.Color(p.c));
+        paint.setAlphaf(p.a ?? 1);
+        canvas.drawRect(Skia.XYWHRect(p.x * s, p.y * s, (p.w ?? 1) * s, (p.h ?? 1) * s), paint);
+      }
+    },
+    { width: MAP_W * s, height: MAP_H * s },
   );
+}
+
+// The ground that never moves: meadow, cobbled path, pond and clover.
+export function groundPicture(s: number) {
+  return cached(`ow-ground-${s}`, () => record(staticGround(), s));
+}
+
+// The grass and flowers, one picture per wind band and lean: wind[band][LEANS.indexOf(lean)].
+const windCache = new Map<number, SkPicture[][]>();
+export function windPictures(s: number) {
+  let pics = windCache.get(s);
+  if (!pics) {
+    pics = windFrames().map((band) => band.map((list) => record(list, s)));
+    windCache.set(s, pics);
+  }
+  return pics;
 }

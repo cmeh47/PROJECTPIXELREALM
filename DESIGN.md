@@ -276,4 +276,5 @@ Timing windows (starting guesses, tuned on device): Perfect about ±80 ms, parry
 - Hit flash: one frame of the sprite tinted white.
 - One timing sheet (`docs/timing.md`) lists frame counts and ticks for every action of every character.
 - Reduce Motion tones down shake, flashes and slow-downs.
+- Ambient motion (grass and flowers swaying as gusts cross the base) steps on the same 12 fps tick, a pixel at a time, pauses during battles and is off with Reduce Motion.
 - Reference: the combat animation storyboards (Sheet 1: action frames, Sheet 2: combat beats).

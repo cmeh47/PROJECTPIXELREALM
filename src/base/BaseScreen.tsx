@@ -1,7 +1,7 @@
 import { Canvas, Group, Oval, Path, Picture, Skia } from '@shopify/react-native-skia';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useDerivedValue, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BattleScreen, type BattleResult } from '../combat/BattleScreen';
@@ -23,6 +23,7 @@ import {
   treePicture,
 } from './art';
 import { HOUSE, HOUSE_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
+import { WindLayer } from './WindLayer';
 
 // ---------- Tuning ----------
 const HERO_SPEED = 64; // art px per second
@@ -98,6 +99,7 @@ export function BaseScreen() {
   const [hintSeen, setHintSeen] = useState(false);
   const [invite, setInvite] = useState(false);
   const [arena, setArena] = useState(false);
+  const reduceMotion = useReducedMotion();
   const [battle, setBattle] = useState<{ toad: number; key: number } | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
 
@@ -542,6 +544,7 @@ export function BaseScreen() {
             <Canvas style={{ width: box.w, height: box.h }}>
               <Group transform={worldT}>
                 <Picture picture={ground} />
+                <WindLayer s={s} active={phase === 'roam' && !arena && !reduceMotion} />
                 {items.map((it) => it.node)}
                 {chop.current ? <Swipe dir={h.dir} hx={h.x} hy={h.y} s={s} /> : null}
                 {leaves.current.map((l, i) => (
