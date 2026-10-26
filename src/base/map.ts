@@ -1,5 +1,5 @@
-// Your base: a meadow lot with your cottage, a path, a pond, choppable trees and four
-// toadstools. All positions are art pixels; the map is 26 x 36 tiles of 16 px.
+// Your base: a meadow lot with your cottage, a path, a pond, choppable trees, four Shroomies
+// and the old butcher's ruined hut. All positions are art pixels; the map is 26 x 36 tiles of 16 px.
 
 export const TILE = 16;
 export const MAP_W = 26 * TILE;
@@ -28,8 +28,14 @@ export const TOAD_SPAWNS: Pt[] = [
   { x: 134, y: 244 },
   { x: 290, y: 178 },
   { x: 108, y: 432 },
-  { x: 300, y: 452 },
+  { x: 236, y: 470 },
 ];
+
+// The old butcher's corner, bottom right: his knocked-down hut (a 46 x 36 frame, top-left here),
+// with him standing in front of it. HUT_BOX is the footing you can't walk through.
+export const HUT = { x: 322, y: 448 };
+export const HUT_BOX = { x: HUT.x + 3, y: HUT.y + 20, w: 40, h: 13 };
+export const BUTCHER = { x: HUT.x + 12, y: HUT.y + 50 };
 
 // A small seeded generator, so the lot looks the same every time it loads.
 export function rng(seed: number) {
@@ -74,7 +80,8 @@ export const TREES: TreeSpot[] = (() => {
     for (let gx = 40; gx < MAP_W - 30; gx += 44) {
       const p = { x: gx + Math.floor(rand() * 22) - 11, y: gy + Math.floor(rand() * 20) - 10 };
       if (rand() < 0.32) continue;
-      if (inRect(p, HOUSE_BOX, 26) || onPath(p, 20) || inPond(p, 22)) continue;
+      if (inRect(p, HOUSE_BOX, 26) || onPath(p, 20) || inPond(p, 22) || inRect(p, HUT_BOX, 26)) continue;
+      if (Math.hypot(p.x - BUTCHER.x, p.y - BUTCHER.y) < 34) continue;
       if (Math.hypot(p.x - SPAWN.x, p.y - SPAWN.y) < 40) continue;
       if (TOAD_SPAWNS.some((t) => Math.hypot(p.x - t.x, p.y - t.y) < 40)) continue;
       out.push({ id: id++, ...p, variant: Math.floor(rand() * 3), border: false });
@@ -93,7 +100,7 @@ export const DETAILS: Detail[] = (() => {
   for (let i = 0; i < 760; i++) {
     const p = { x: Math.floor(rand() * MAP_W), y: Math.floor(rand() * MAP_H) };
     // Grass keeps a little clear of the path: the edge tufts in ground.ts dress that rim.
-    if (inPond(p, 3) || inRect(p, HOUSE_BOX, 2) || onPath(p, 4)) continue;
+    if (inPond(p, 3) || inRect(p, HOUSE_BOX, 2) || onPath(p, 4) || inRect(p, HUT_BOX, 2)) continue;
     const r = rand();
     out.push({ ...p, kind: r < 0.5 ? 'tuft' : r < 0.75 ? 'tuft2' : r < 0.93 ? 'clover' : 'flower', color: ['R', 'B', 'H', 'Y'][Math.floor(rand() * 4)] });
   }
@@ -112,7 +119,7 @@ export const DETAILS: Detail[] = (() => {
     const n = 2 + Math.floor(tall() * 3);
     for (let j = 0; j < n; j++) {
       const p = { x: c.x + Math.floor(tall() * 14) - 7, y: c.y + Math.floor(tall() * 8) - 4 };
-      if (inPond(p, 6) || inRect(p, HOUSE_BOX, 6) || onPath(p, 6) || Math.hypot(p.x - SPAWN.x, p.y - SPAWN.y) < 14) continue;
+      if (inPond(p, 6) || inRect(p, HOUSE_BOX, 6) || onPath(p, 6) || inRect(p, HUT_BOX, 6) || Math.hypot(p.x - SPAWN.x, p.y - SPAWN.y) < 14) continue;
       out.push({ ...p, kind: 'tall', variant: Math.floor(tall() * 2) });
     }
   }

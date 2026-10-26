@@ -302,3 +302,81 @@ export function logGrid(): Grid {
   g.outline(PAL.K);
   return g;
 }
+
+// The old butcher, 16 x 22 frame, facing you: bald with white tufts over his ears, a walrus
+// mustache, a sky shirt and an apron. frame 1 bobs him down a pixel, for a slow breathing idle.
+const OLD_MAN = [
+  '....SSSSSS....',
+  '..SSHHSSSSSS..',
+  '.SSHSSSSSSSSR.',
+  'oSSSSSSSSSSSRo',
+  'ooSooSSSSooSoo',
+  'ooSKSSSSSSKSoO',
+  '.SSKSSRRSSKSS.',
+  '.SoooooooooOS.',
+  '..OooSSSSooO..',
+  '...SSSSSSSS...',
+  '..YVVVVVVVVY..',
+  '.YYVVVVVVVVYG.',
+  '.YGVVVVRVVVGG.',
+  '.SGVVVVVVVVGS.',
+  '..WWWWWWWWWW..',
+  '...VVVVVVVC...',
+];
+
+export function oldManOverworld(frame: number): Grid {
+  const g = new Grid(HERO_OW_W, HERO_OW_H);
+  const top = 2 + (frame % 2);
+  for (const x of [4, 10]) for (let y = 18; y < 20; y++) {
+    g.set(x, y, PAL.P);
+    g.set(x + 1, y, PAL.P);
+  }
+  g.stamp(OLD_MAN, 1, top);
+  g.outline(PAL.K);
+  return g;
+}
+
+// The butcher's hut, knocked down: a stone footing, the ragged stumps of its plank walls, one
+// corner post still standing, the rose roof fallen in a slab across the front, and loose planks.
+export const HUT_W = 46;
+export const HUT_H = 36;
+
+export function hutRuinsGrid(): Grid {
+  const g = new Grid(HUT_W, HUT_H);
+  // Stone footing, coursed like the cottage path.
+  for (let y = 27; y < 33; y++) {
+    for (let x = 2; x < 44; x++) {
+      const joint = (x + (Math.floor((y - 27) / 2) % 2) * 3) % 6 === 0;
+      g.set(x, y, y === 27 ? PAL.V : joint || y === 32 ? PAL.O : PAL.o);
+    }
+  }
+  // What's left of the back wall: planks snapped off at ragged heights.
+  const heights = [11, 14, 8, 5, 9, 3, 6, 2, 4, 7, 12];
+  heights.forEach((h, i) => {
+    const x0 = 5 + i * 3;
+    for (let y = 27 - h; y < 27; y++) for (let x = x0; x < x0 + 3; x++) g.set(x, y, x === x0 + 2 || y === 26 ? PAL.W : PAL.w);
+    g.set(x0 + (i % 2 ? 2 : 0), 26 - h, PAL.w);
+  });
+  // The corner post that's still standing, with a crossbeam stub.
+  for (let y = 4; y < 27; y++) for (let x = 38; x < 41; x++) g.set(x, y, x === 40 ? PAL.W : PAL.w);
+  for (let x = 32; x < 38; x++) for (let y = 7; y < 9; y++) g.set(x, y, y === 8 ? PAL.W : PAL.w);
+  // The roof, fallen in one slab and resting tilted on the footing.
+  for (let j = 0; j < 9; j++) {
+    for (let i = 0; i < 22; i++) {
+      const x = 3 + i + Math.floor(j / 2);
+      const y = 17 + j + Math.floor(i / 5);
+      g.set(x, y, j === 0 ? PAL.H : j % 3 === 0 ? PAL.r : PAL.R);
+    }
+  }
+  // Loose planks in the grass at the front right.
+  for (let i = 0; i < 10; i++) {
+    g.set(28 + i, 31 + Math.floor(i / 4), PAL.w);
+    g.set(28 + i, 32 + Math.floor(i / 4), PAL.W);
+  }
+  for (let i = 0; i < 7; i++) {
+    g.set(36 + i, 34 - Math.floor(i / 3), PAL.w);
+    g.set(36 + i, 35 - Math.floor(i / 3), PAL.W);
+  }
+  g.outline(PAL.K);
+  return g;
+}

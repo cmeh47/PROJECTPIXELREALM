@@ -1,6 +1,6 @@
 import { createPicture, Skia, type SkPicture } from '@shopify/react-native-skia';
 
-import { bubbleGrid, heartGrid, heroOverworld, houseGrid, leafGrid, logGrid, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
+import { bubbleGrid, heartGrid, heroOverworld, houseGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
 import { Grid, PAL } from '../sprites/pixel';
 import { gridPicture } from '../sprites/render';
 import { staticGround, windFrames, type Px } from './ground';
@@ -26,6 +26,8 @@ export const treePicture = (variant: number, flash: boolean, s: number) =>
   gridPicture(`ow-tree-${variant}-${flash ? 1 : 0}`, flash ? flashed(treeGrid(variant)) : treeGrid(variant), s);
 export const stumpPicture = (s: number) => gridPicture('ow-stump', stumpGrid(), s);
 export const housePicture = (s: number) => gridPicture('ow-house', houseGrid(0), s);
+export const oldManPicture = (frame: number, s: number) => gridPicture(`ow-oldman-${frame}`, oldManOverworld(frame), s);
+export const hutPicture = (s: number) => gridPicture('ow-hut-ruins', hutRuinsGrid(), s);
 export const bubblePicture = (s: number) => gridPicture('ow-bubble', bubbleGrid(), s);
 export const heartPicture = (s: number) => gridPicture('ow-heart', heartGrid(), s);
 export const leafPicture = (s: number) => gridPicture('ow-leaf', leafGrid(), s);

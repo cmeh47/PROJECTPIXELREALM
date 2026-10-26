@@ -46,7 +46,7 @@ type Phase = 'menu' | 'moves' | 'tame' | 'flee' | 'acting' | 'won' | 'lost' | 't
 // Battle state lives in a ref and is mutated by the async combat sequences; force() repaints.
 // pose === null means "breathe with the shared idle beat".
 type HeroState = { name: string; look: number; hp: number; pose: HeroPose | null; z?: number };
-type FoeState = { name: string; look: number; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
+type FoeState = { name: string; look: number; kind?: FoePose['kind']; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
 type Game = { heroes: HeroState[]; foes: FoeState[] };
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -61,7 +61,30 @@ const PANEL_H = 214;
 const HERO_NAMES = ['You', 'Mint Ranger', 'Gold Warden', 'Sky Mage'];
 const FOE_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie'];
 
-export type Encounter = { look: number; name: string };
+export type Encounter = { look: number; name: string; kind?: FoePose['kind'] };
+
+// Lines that change with who you're fighting: a toadstool and its club, or the old butcher.
+function foeCopy(kind: FoePose['kind']) {
+  return kind === 'butcher'
+    ? {
+        intro: (name: string) => `The ${name} raises his cleaver. He won't back down.`,
+        tell: (name: string) => `The ${name} raises his cleaver at you!`,
+        win: 'The old man drops to one knee, out of breath. Victory!',
+        broken: 'The old man is Broken! Hit him hard while he reels.',
+        steady: 'The old man steadies himself. Your turn.',
+        block: 'The old man blocks your way!',
+        lost: 'The old man wins this round. Watch his cleaver come up before you tap.',
+      }
+    : {
+        intro: (name: string) => `A ${name} blocks the path. It grips its club and sways.`,
+        tell: (name: string) => `The ${name} raises its club at you!`,
+        win: 'The last Shroomie flops over. Victory!',
+        broken: 'A Shroomie is Broken! Hit it hard, or try to tame it.',
+        steady: 'The Shroomies steady themselves. Your turn.',
+        block: 'The Shroomies block your way!',
+        lost: 'The Shroomies win this round. Try reading the wind-up before you tap.',
+      };
+}
 export type BattleResult = 'won' | 'lost' | 'tamed' | 'fled';
 
 function newGame(full: boolean, encounter?: Encounter): Game {
@@ -74,7 +97,7 @@ function newGame(full: boolean, encounter?: Encounter): Game {
 const active = (g: Game) => g.foes.map((f, j) => (f.out ? -1 : j)).filter((j) => j >= 0);
 const standing = (g: Game) => g.heroes.map((h, i) => (h.hp > 0 ? i : -1)).filter((i) => i >= 0);
 
-// encounter: a fight started on the base map against one toadstool; onDone hands the result back.
+// encounter: a fight started on the base map against one Shroomie or the butcher; onDone hands the result back.
 // Without an encounter it is the practice arena, with the SOLO / PARTY 4 toggle and onExit.
 export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encounter; onDone?: (r: BattleResult) => void; onExit?: () => void } = {}) {
   const insets = useSafeAreaInsets();
@@ -97,7 +120,9 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   const [ap, setAp] = useState(AP_START);
   const [chain, setChain] = useState(0);
   const [hint, setHint] = useState('');
-  const [line, setLine] = useState(`A ${encounter?.name ?? 'Mossback Shroomie'} blocks the path. It grips its club and sways.`);
+  const kind = encounter?.kind ?? 'shroomie';
+  const copy = foeCopy(kind);
+  const [line, setLine] = useState(copy.intro(encounter?.name ?? 'Mossback Shroomie'));
   const [pops, setPops] = useState<Pop[]>([]);
   const [sel, setSel] = useState(0);
   const [treat, setTreat] = useState(false);
@@ -287,7 +312,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
       if (youAreTarget) {
         setGuarding(true);
         setHint('Watch the wind-up. Tap to parry, swipe sideways to dodge.');
-        setLine(pattern.feint ? `The ${g0.foes[j].name} sways oddly...` : `The ${g0.foes[j].name} raises its club at you!`);
+        setLine(pattern.feint ? `The ${g0.foes[j].name} sways oddly...` : copy.tell(g0.foes[j].name));
       } else {
         setHint('');
         setLine(`The ${g0.foes[j].name} goes for the ${g0.heroes[i].name}!`);
@@ -458,11 +483,11 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
 
   const tamedRef = useRef(0);
 
-  const finish = useCallback((kind: 'won' | 'tamed') => {
+  const finish = useCallback((result: 'won' | 'tamed') => {
     setCheer(true);
     setFocus(null);
-    setLine(kind === 'tamed' ? 'The Shroomie wants to come home with you!' : 'The last Shroomie flops over. Victory!');
-    setPhase(kind);
+    setLine(result === 'tamed' ? 'The Shroomie wants to come home with you!' : copy.win);
+    setPhase(result);
     haptic('success');
   }, []);
 
@@ -520,7 +545,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     retarget();
     setHint('');
     const anyBroken = active(g0).some((j) => g0.foes[j].broken);
-    setLine(anyBroken ? 'A Shroomie is Broken! Hit it hard, or try to tame it.' : 'The Shroomies steady themselves. Your turn.');
+    setLine(anyBroken ? copy.broken : copy.steady);
     setPhase('menu');
   }, [allyAct, finish, foeAttack, geo, playFoe, pop, retarget, setFoePose, setHeroPose]);
 
@@ -728,7 +753,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     }
     const you = g.hero(0);
     pop("CAN'T ESCAPE", colors.rose, you.x + 6, g.above(you, 48));
-    setLine('The Shroomies block your way!');
+    setLine(copy.block);
     await wait(500);
     await restOfRound();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -781,7 +806,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     g0.foes.forEach((f, j) => {
       const idlePose: FoePose =
         f.out === 'down' ? FOE.down : f.out === 'tamed' ? FOE.happy[beat % 2][1] : f.out === 'fled' ? { tilt: -2, x: 2 } : FOE.idle[(beat + j * 2) % 4][1];
-      actors.push({ kind: 'foe', key: `f${j}`, slot: field.foes[j], z: f.z, pose: { ...(f.out ? idlePose : (f.pose ?? idlePose)), look: f.look }, dx: fdx[j], dy: fdy[j] });
+      actors.push({ kind: 'foe', key: `f${j}`, slot: field.foes[j], z: f.z, pose: { ...(f.out ? idlePose : (f.pose ?? idlePose)), look: f.look, kind: f.kind }, dx: fdx[j], dy: fdy[j] });
     });
   }
 
@@ -805,7 +830,9 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   const downed = g0.foes.filter((f) => f.out === 'down').length;
   const wonText = party
     ? `The pack is cleared. +40 XP each for the party, and ${3 * downed} wood for the base.`
-    : `The ${g0.foes[0].name} is defeated. +40 XP and 3 wood for the base.`;
+    : kind === 'butcher'
+      ? 'The old man lowers his cleaver and sits down hard. +40 XP.'
+      : `The ${g0.foes[0].name} is defeated. +40 XP and 3 wood for the base.`;
 
   return (
     <GestureDetector gesture={gesture}>
@@ -907,7 +934,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
               <View style={st.caption} pointerEvents="none">
                 <Framed shadow={null} fill={colors.vellum}>
                   <View style={st.dialog}>
-                    <FoeHead />
+                    <FoeHead kind={kind} />
                     <Text style={[t.body, { flex: 1, fontSize: 14, lineHeight: 19 }]}>{caption}</Text>
                   </View>
                 </Framed>
@@ -962,15 +989,17 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                     </View>
                   </PixelButton>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <PixelButton style={{ flex: 1 }} height={84} fill={colors.mint} shadow={colors.questGreen} onPress={() => setPhase('tame')} accessibilityLabel="Tame">
-                      <View style={st.btnRow}>
-                        <PixelIcon name="heart" size={3} />
-                        <View>
-                          <Text style={[t.button, { fontSize: 20 }]}>TAME</Text>
-                          <Text style={[t.caption, { fontSize: 12 }]}>{Math.round(tameChance(tf.hp, tf.broken, false) * 100)}% now</Text>
+                    {kind !== 'butcher' ? (
+                      <PixelButton style={{ flex: 1 }} height={84} fill={colors.mint} shadow={colors.questGreen} onPress={() => setPhase('tame')} accessibilityLabel="Tame">
+                        <View style={st.btnRow}>
+                          <PixelIcon name="heart" size={3} />
+                          <View>
+                            <Text style={[t.button, { fontSize: 20 }]}>TAME</Text>
+                            <Text style={[t.caption, { fontSize: 12 }]}>{Math.round(tameChance(tf.hp, tf.broken, false) * 100)}% now</Text>
+                          </View>
                         </View>
-                      </View>
-                    </PixelButton>
+                      </PixelButton>
+                    ) : null}
                     <PixelButton style={{ flex: 1 }} height={84} fill={colors.vellum} shadow={colors.ink} onPress={() => setPhase('flee')} accessibilityLabel="Flee">
                       <View style={st.btnRow}>
                         <PixelIcon name="flee" size={3} />
@@ -1109,11 +1138,13 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                       {phase === 'won'
                         ? wonText
                         : phase === 'lost'
-                          ? 'The Shroomies win this round. Try reading the wind-up before you tap.'
+                          ? copy.lost
                           : phase === 'tamed'
                             ? `The ${tamedName} is heading to your base as your new critter. Tap it there to say hi!${party ? ' The rest of the pack fled.' : ''}`
                             : encounter
-                              ? `You backed off. The ${encounter.name} is still wandering your base.`
+                              ? kind === 'butcher'
+                                ? `You backed off. The ${encounter.name} is still guarding his hut.`
+                                : `You backed off. The ${encounter.name} is still wandering your base.`
                               : 'You slipped away into the fog. No rewards from this room.'}
                     </Text>
                     <PixelButton height={52} onPress={() => (onDone ? onDone(phase as BattleResult) : reset(full))} style={{ marginTop: 'auto' }}>
@@ -1172,8 +1203,8 @@ function HeadSprite({ look, small }: { look: number; small?: boolean }) {
   );
 }
 
-function FoeHead() {
-  const pic = useMemo(() => gridPicture('foehead', foePortrait(), 2), []);
+function FoeHead({ kind }: { kind: FoePose['kind'] }) {
+  const pic = useMemo(() => gridPicture(`foehead-${kind}`, foePortrait(kind), 2), [kind]);
   return (
     <View style={[st.portrait, { width: 46, height: 46 }]}>
       <Canvas style={{ width: 40, height: 40 }}>

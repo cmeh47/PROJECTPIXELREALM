@@ -1,29 +1,32 @@
 import { Canvas, Group, Oval, Path, Picture, Skia } from '@shopify/react-native-skia';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, SlideInLeft, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BattleScreen, type BattleResult } from '../combat/BattleScreen';
 import { PopText, type Pop } from '../combat/Pops';
 import { TREE_H, TREE_W, type Dir } from '../sprites/overworld';
 import { colors } from '../theme';
-import { Chip, Framed, haptic, PixelButton, styles as t } from '../ui/pixel';
+import { Chip, Framed, haptic, PixelButton, SegBar, styles as t } from '../ui/pixel';
 import {
   bubblePicture,
   groundPicture,
   heartPicture,
   heroOwPicture,
   housePicture,
+  hutPicture,
   leafPicture,
   logPicture,
+  oldManPicture,
   stumpPicture,
   swipePicture,
   toadOwPicture,
   treePicture,
 } from './art';
-import { HOUSE, HOUSE_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
-import { CritterDialog, type Critter } from './CritterDialog';
+import { BUTCHER, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
+import { Conversation, type Script, type Speaker } from './Conversation';
+import { BUTCHER_SCRIPT, BUTCHER_SPEAKER, CRITTER_SCRIPT, critterSpeaker } from './npcs';
 import { WindLayer } from './WindLayer';
 
 // ---------- Tuning ----------
@@ -35,6 +38,7 @@ const REGROW_MS = 60_000;
 const TOUCH_RADIUS = 11; // bumping into a Shroomie
 const GRACE_MS = 2500; // after fleeing or losing, Shroomies ignore you for a moment
 const MAX_VISITORS = 4;
+const HUT_WOOD = 10; // the butcher's quest
 
 const TOAD_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie', 'Mossback Shroomie'];
 const TOAD_LOOKS = [0, 1, 2, 0];
@@ -57,6 +61,10 @@ type Toad = {
 type Tree = (typeof TREES)[number] & { hits: number; felledAt: number | null; flash: number; shake: number };
 type Leaf = { x: number; y: number; vx: number; vy: number; life: number };
 type Phase = 'roam' | 'alert' | 'swirl' | 'battle';
+type Foe = { kind: 'shroomie'; id: number } | { kind: 'butcher' };
+// How far you've got with the old butcher: he's hostile until you beat him, then offers the hut job.
+type ButcherStage = 'hostile' | 'spared' | 'quest';
+type Talk = { speaker: Speaker; script: Script; start: string; key: number };
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
@@ -96,25 +104,35 @@ export function BaseScreen() {
     setPhaseState(p);
   };
   const [wood, setWood] = useState(0);
+  const woodRef = useRef(0);
+  woodRef.current = wood;
   const [pops, setPops] = useState<Pop[]>([]);
   const [hintSeen, setHintSeen] = useState(false);
   const [invite, setInvite] = useState(false);
   const [arena, setArena] = useState(false);
   const reduceMotion = useReducedMotion();
-  const [battle, setBattle] = useState<{ toad: number; key: number } | null>(null);
+  const [battle, setBattle] = useState<{ foe: Foe; key: number } | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
-  const [talk, setTalk] = useState<Critter | null>(null);
+  const [talk, setTalk] = useState<Talk | null>(null);
+  const [stage, setStageState] = useState<ButcherStage>('hostile');
+  const stageRef = useRef<ButcherStage>('hostile');
+  const setStage = (b: ButcherStage) => {
+    stageRef.current = b;
+    setStageState(b);
+  };
 
   // World state, mutated by the game loop.
   const hero = useRef({ x: SPAWN.x, y: SPAWN.y, dir: 'down' as Dir, frame: 0, walkMs: 0, grace: 0 });
-  const goal = useRef<{ to: Pt | null; holding: boolean; chop: number | null; downAt: number }>({ to: null, holding: false, chop: null, downAt: 0 });
+  // talk: walking over to speak with the butcher; the box opens on arrival.
+  const goal = useRef<{ to: Pt | null; holding: boolean; chop: number | null; talk?: boolean; downAt: number }>({ to: null, holding: false, chop: null, downAt: 0 });
   // Where a held finger rests on screen, in art pixels. The hero keeps walking toward it while the camera follows.
   const finger = useRef<Pt | null>(null);
   const chop = useRef<{ tree: number; ms: number; swing: number } | null>(null);
   const toads = useRef<Toad[]>(newToads());
   const trees = useRef<Tree[]>(newTrees());
   const leaves = useRef<Leaf[]>([]);
-  const alertToad = useRef<number | null>(null);
+  const alertFoe = useRef<Foe | null>(null);
+  const talking = useRef(false); // a text box is open: Shroomies won't start a fight
 
   // Positions on the UI thread for smooth movement; everything else repaints at sprite rate.
   const heroX = useSharedValue(SPAWN.x);
@@ -124,6 +142,9 @@ export function BaseScreen() {
   const camY = useSharedValue(0);
   const tx = [useSharedValue(0), useSharedValue(0), useSharedValue(0), useSharedValue(0)];
   const ty = [useSharedValue(0), useSharedValue(0), useSharedValue(0), useSharedValue(0)];
+  const npcX = useSharedValue(BUTCHER.x);
+  const npcY = useSharedValue(BUTCHER.y);
+  const npcBeat = useSharedValue(0);
   const bubble = useSharedValue(0);
   const swirl = useSharedValue(0);
   const flash = useSharedValue(0);
@@ -146,6 +167,8 @@ export function BaseScreen() {
     if (x < 14 || x > MAP_W - 14 || y < 46 || y > MAP_H - 10) return true;
     if (x > HOUSE_BOX.x - 3 && x < HOUSE_BOX.x + HOUSE_BOX.w + 3 && y > HOUSE_BOX.y && y < HOUSE_BOX.y + HOUSE_BOX.h + 2) return true;
     if (inPond({ x, y }, 3)) return true;
+    if (x > HUT_BOX.x && x < HUT_BOX.x + HUT_BOX.w && y > HUT_BOX.y && y < HUT_BOX.y + HUT_BOX.h) return true;
+    if (Math.abs(x - BUTCHER.x) < 6 && y > BUTCHER.y - 5 && y < BUTCHER.y + 3) return true;
     for (const tr of trees.current) {
       const r = tr.felledAt ? 5 : 6;
       if (Math.abs(x - tr.x) < r && y > tr.y - 5 && y < tr.y + 3) return true;
@@ -155,21 +178,24 @@ export function BaseScreen() {
 
   // ---------- Encounters ----------
   const startEncounter = useCallback(
-    async (id: number) => {
-      const tdx = toads.current[id];
+    async (foe: Foe) => {
       const h = hero.current;
       setPhase('alert');
       goal.current = { to: null, holding: false, chop: null, downAt: 0 };
       chop.current = null;
-      alertToad.current = id;
+      alertFoe.current = foe;
       // Face each other.
-      const dx = tdx.x - h.x;
-      const dy = tdx.y - h.y;
+      const at = foe.kind === 'shroomie' ? toads.current[foe.id] : BUTCHER;
+      const dx = at.x - h.x;
+      const dy = at.y - h.y;
       h.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
       h.frame = 0;
-      tdx.flip = dx < 0;
-      tdx.mode = 'idle';
-      tdx.hop = 0;
+      if (foe.kind === 'shroomie') {
+        const tdx = toads.current[foe.id];
+        tdx.flip = dx < 0;
+        tdx.mode = 'idle';
+        tdx.hop = 0;
+      }
       force();
       haptic('heavy');
       bubble.value = withSequence(withTiming(1.3, { duration: 110, easing: Easing.out(Easing.quad) }), withTiming(1, { duration: 90 }));
@@ -180,7 +206,7 @@ export function BaseScreen() {
       await wait(920);
       bubble.value = 0;
       flash.value = 1;
-      setBattle({ toad: id, key: Date.now() });
+      setBattle({ foe, key: Date.now() });
       setPhase('battle');
       swirl.value = 0;
       flash.value = withTiming(0, { duration: 420, easing: Easing.out(Easing.quad) });
@@ -190,13 +216,25 @@ export function BaseScreen() {
 
   const endBattle = useCallback(
     async (result: BattleResult) => {
-      const id = battle?.toad;
+      const foe = battle?.foe;
+      const id = foe?.kind === 'shroomie' ? foe.id : null;
       flash.value = withTiming(1, { duration: 200 });
       await wait(220);
       setBattle(null);
       setPhase('roam');
-      alertToad.current = null;
+      alertFoe.current = null;
       const h = hero.current;
+      if (foe?.kind === 'butcher') {
+        if (result === 'won') {
+          // He's had enough. Once the flash clears, he talks.
+          setStage('spared');
+          setTimeout(() => openTalk(BUTCHER_SPEAKER, BUTCHER_SCRIPT, 'spared'), 650);
+        } else if (result === 'fled') {
+          stepBack(BUTCHER);
+        } else {
+          respawn();
+        }
+      }
       if (id != null) {
         const td = toads.current[id];
         if (result === 'won') {
@@ -215,26 +253,9 @@ export function BaseScreen() {
           setTimeout(() => pop('NEW CRITTER!', colors.mint, td.x, td.y - 20, { big: true }), 300);
           setTimeout(() => setBanner(`Your ${td.name} moved in by the cottage. Tap it to say hi!`), 700);
         } else if (result === 'fled') {
-          // Step back out of reach and get a moment's grace.
-          const dx = h.x - td.x;
-          const dy = h.y - td.y;
-          const d = Math.max(1, Math.hypot(dx, dy));
-          for (let k = 24; k > 0; k -= 4) {
-            const nx = h.x + (dx / d) * k;
-            const ny = h.y + (dy / d) * k;
-            if (!blocked(nx, ny)) {
-              h.x = nx;
-              h.y = ny;
-              break;
-            }
-          }
-          h.grace = GRACE_MS;
+          stepBack(td);
         } else {
-          h.x = SPAWN.x;
-          h.y = SPAWN.y;
-          h.dir = 'down';
-          h.grace = GRACE_MS;
-          setTimeout(() => setBanner('You wake up by your door, good as new.'), 200);
+          respawn();
         }
       }
       heroX.value = h.x;
@@ -242,8 +263,65 @@ export function BaseScreen() {
       force();
       flash.value = withTiming(0, { duration: 380 });
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [battle, blocked, flash, heroX, heroY, pop],
   );
+
+  // After fleeing: step back out of reach and get a moment's grace.
+  const stepBack = (from: Pt) => {
+    const h = hero.current;
+    const dx = h.x - from.x;
+    const dy = h.y - from.y;
+    const d = Math.max(1, Math.hypot(dx, dy));
+    for (let k = 24; k > 0; k -= 4) {
+      const nx = h.x + (dx / d) * k;
+      const ny = h.y + (dy / d) * k;
+      if (!blocked(nx, ny)) {
+        h.x = nx;
+        h.y = ny;
+        break;
+      }
+    }
+    h.grace = GRACE_MS;
+  };
+  // After losing: wake up at home.
+  const respawn = () => {
+    const h = hero.current;
+    h.x = SPAWN.x;
+    h.y = SPAWN.y;
+    h.dir = 'down';
+    h.grace = GRACE_MS;
+    setTimeout(() => setBanner('You wake up by your door, good as new.'), 200);
+  };
+
+  const talkKey = useRef(0);
+  const openTalk = (speaker: Speaker, script: Script, start: string) => {
+    talkKey.current += 1;
+    talking.current = true;
+    setTalk({ speaker, script, start, key: talkKey.current });
+  };
+  // Talking to the butcher picks up wherever you left off with him.
+  const talkToButcher = () => {
+    const h = hero.current;
+    const dx = BUTCHER.x - h.x;
+    const dy = BUTCHER.y - h.y;
+    h.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+    h.frame = 0;
+    const b = stageRef.current;
+    openTalk(BUTCHER_SPEAKER, BUTCHER_SCRIPT, b === 'hostile' ? 'hostile' : b === 'spared' ? 'ask' : woodRef.current >= HUT_WOOD ? 'ready' : 'quest');
+    force();
+  };
+  const endTalk = (end?: string) => {
+    setTalk(null);
+    talking.current = false;
+    if (end === 'fight') startEncounter({ kind: 'butcher' });
+    else if (end === 'accept') {
+      setStage('quest');
+      haptic('success');
+      pop('NEW QUEST!', colors.butter, BUTCHER.x, BUTCHER.y - 30, { big: true });
+      setTimeout(() => setBanner(`Quest: rebuild the butcher's hut. Bring him ${HUT_WOOD} wood.`), 500);
+    }
+  };
 
   // ---------- The game loop ----------
   useEffect(() => {
@@ -328,6 +406,13 @@ export function BaseScreen() {
                 repaint = true;
               }
             }
+            // Arrived in front of the butcher?
+            if (g.talk && Math.hypot(BUTCHER.x - h.x, BUTCHER.y - h.y) < 20 && (dist < 3 || !moving)) {
+              g.talk = false;
+              g.to = null;
+              moving = false;
+              talkToButcher();
+            }
           }
           if (moving) {
             h.walkMs += dt;
@@ -379,8 +464,8 @@ export function BaseScreen() {
             }
           }
           // Bump!
-          if (td.status === 'wild' && h.grace <= 0 && phaseRef.current === 'roam' && Math.hypot(td.x - h.x, td.y - h.y) < TOUCH_RADIUS) {
-            startEncounter(td.id);
+          if (td.status === 'wild' && h.grace <= 0 && !talking.current && phaseRef.current === 'roam' && Math.hypot(td.x - h.x, td.y - h.y) < TOUCH_RADIUS) {
+            startEncounter({ kind: 'shroomie', id: td.id });
             repaint = true;
           }
         }
@@ -414,6 +499,7 @@ export function BaseScreen() {
 
       // Push positions to the UI thread; the camera stays locked on the hero, clamped to the map.
       beat.value = Math.floor(now / 400) % 2;
+      npcBeat.value = Math.floor(now / 700) % 2;
       heroX.value = h.x;
       heroY.value = h.y;
       toads.current.forEach((td, i) => {
@@ -458,9 +544,28 @@ export function BaseScreen() {
       pal.hop = 0;
       pal.t = 4000;
       goal.current = { to: null, holding: false, chop: null, downAt: g.downAt };
-      setTalk({ name: pal.name, look: pal.look });
+      openTalk(critterSpeaker(pal.name, pal.look), CRITTER_SCRIPT, 'hi');
       force();
       return;
+    }
+    // The butcher? Walk up to him, then talk.
+    if (Math.abs(p.x - BUTCHER.x) < 10 && p.y > BUTCHER.y - 22 && p.y < BUTCHER.y + 4) {
+      const h = hero.current;
+      if (Math.hypot(BUTCHER.x - h.x, BUTCHER.y - h.y) < 20) {
+        goal.current = { to: null, holding: false, chop: null, downAt: g.downAt };
+        talkToButcher();
+        return;
+      }
+      const spots = [
+        { x: BUTCHER.x, y: BUTCHER.y + 12 },
+        { x: BUTCHER.x - 14, y: BUTCHER.y + 1 },
+        { x: BUTCHER.x + 14, y: BUTCHER.y + 1 },
+      ].filter((q) => !blocked(q.x, q.y));
+      spots.sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+      if (spots.length) {
+        goal.current = { to: spots[0], holding: false, chop: null, talk: true, downAt: g.downAt };
+        return;
+      }
     }
     // A tree? Walk to the nearest free side of its trunk, then chop.
     const tr = trees.current.find((tt) => !tt.border && !tt.felledAt && p.x > tt.x - 13 && p.x < tt.x + 13 && p.y > tt.y - TREE_H + 4 && p.y < tt.y + 3);
@@ -511,6 +616,8 @@ export function BaseScreen() {
   type Item = { y: number; key: string; node: ReactNode };
   const items: Item[] = [];
   items.push({ y: HOUSE.y + 50, key: 'house', node: <Static key="house" pic={housePicture(s)} x={HOUSE.x} y={HOUSE.y} s={s} /> });
+  items.push({ y: HUT_BOX.y + HUT_BOX.h - 4, key: 'hut', node: <Static key="hut" pic={hutPicture(s)} x={HUT.x} y={HUT.y} s={s} /> });
+  items.push({ y: BUTCHER.y, key: 'butcher', node: <OldMan key="butcher" beat={npcBeat} s={s} /> });
   for (const tr of trees.current) {
     const left = tr.x - TREE_W / 2 + (tr.shake > 0 ? (Math.floor(tr.shake / 40) % 2 ? 1 : -1) : 0);
     items.push({
@@ -540,7 +647,8 @@ export function BaseScreen() {
 
   const ground = useMemo(() => groundPicture(s), [s]);
   const worldT = useDerivedValue(() => [{ translateX: -camX.value * s }, { translateY: -camY.value * s }]);
-  const alert = alertToad.current;
+  const af = alertFoe.current;
+  const alert = af == null ? null : af.kind === 'shroomie' ? { x: tx[af.id], y: ty[af.id], top: 16 } : { x: npcX, y: npcY, top: 22 };
 
   return (
     <View style={st.screen}>
@@ -574,7 +682,7 @@ export function BaseScreen() {
                 {toads.current.map((td, i) =>
                   td.status === 'critter' ? <Heart key={`hrt${i}`} x={tx[i]} y={ty[i]} beat={beat} s={s} /> : null,
                 )}
-                {alert != null ? <Bubble x={tx[alert]} y={ty[alert]} scale={bubble} s={s} /> : null}
+                {alert ? <Bubble x={alert.x} y={alert.y} top={alert.top} scale={bubble} s={s} /> : null}
               </Group>
             </Canvas>
           ) : null}
@@ -587,25 +695,28 @@ export function BaseScreen() {
 
           {/* HUD */}
           <View style={[st.hud, { top: insets.top + 8 }]} pointerEvents="box-none">
-            <Framed depth={1}>
-              <View style={st.hudPanel}>
-                <Text style={t.statSoft}>YOUR BASE</Text>
-                <View style={st.counters}>
-                  <View style={st.counter} accessibilityLabel={`${wood} wood`}>
-                    <Icon pic={logPicture(2)} w={28} h={18} />
-                    <Text style={t.stat}>{wood}</Text>
-                  </View>
-                  <View style={st.counter} accessibilityLabel={`${wild} wild Shroomies`}>
-                    <Icon pic={toadOwPicture(0, 0, false, 1)} w={16} h={16} />
-                    <Text style={t.stat}>{wild}</Text>
-                  </View>
-                  <View style={st.counter} accessibilityLabel={`${critters} critters`}>
-                    <Icon pic={heartPicture(1)} w={9} h={8} />
-                    <Text style={t.stat}>{critters}</Text>
+            <View style={{ gap: 8 }}>
+              <Framed depth={1}>
+                <View style={st.hudPanel}>
+                  <Text style={t.statSoft}>YOUR BASE</Text>
+                  <View style={st.counters}>
+                    <View style={st.counter} accessibilityLabel={`${wood} wood`}>
+                      <Icon pic={logPicture(2)} w={28} h={18} />
+                      <Text style={t.stat}>{wood}</Text>
+                    </View>
+                    <View style={st.counter} accessibilityLabel={`${wild} wild Shroomies`}>
+                      <Icon pic={toadOwPicture(0, 0, false, 1)} w={16} h={16} />
+                      <Text style={t.stat}>{wild}</Text>
+                    </View>
+                    <View style={st.counter} accessibilityLabel={`${critters} critters`}>
+                      <Icon pic={heartPicture(1)} w={9} h={8} />
+                      <Text style={t.stat}>{critters}</Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            </Framed>
+              </Framed>
+              {stage === 'quest' ? <QuestTracker wood={wood} /> : null}
+            </View>
             <View style={{ gap: 6, alignItems: 'flex-end' }}>
               <Pressable accessibilityRole="button" accessibilityLabel={`Visitors: 1 of ${MAX_VISITORS}. Invite friends`} onPress={() => setInvite(true)} hitSlop={8}>
                 <Chip label={`VISITORS 1/${MAX_VISITORS}`} fill={colors.butter} />
@@ -641,7 +752,11 @@ export function BaseScreen() {
           <View style={StyleSheet.absoluteFill}>
             <BattleScreen
               key={battle.key}
-              encounter={{ look: toads.current[battle.toad].look, name: toads.current[battle.toad].name }}
+              encounter={
+                battle.foe.kind === 'butcher'
+                  ? { look: 0, name: 'Old Man', kind: 'butcher' }
+                  : { look: toads.current[battle.foe.id].look, name: toads.current[battle.foe.id].name }
+              }
               onDone={endBattle}
             />
           </View>
@@ -653,7 +768,7 @@ export function BaseScreen() {
         ) : null}
         <FlashOverlay value={flash} />
 
-        {talk ? <CritterDialog critter={talk} bottom={insets.bottom + 14} onClose={() => setTalk(null)} /> : null}
+        {talk ? <Conversation key={talk.key} speaker={talk.speaker} script={talk.script} start={talk.start} bottom={insets.bottom + 14} onEnd={endTalk} /> : null}
 
         {invite ? (
           <View style={st.sheetWrap}>
@@ -725,18 +840,58 @@ function Heart({ x, y, beat, s }: { x: SharedValue<number>; y: SharedValue<numbe
   );
 }
 
-function Bubble({ x, y, scale, s }: { x: SharedValue<number>; y: SharedValue<number>; scale: SharedValue<number>; s: number }) {
-  // Pops out of the Shroomie's cap, anchored at the tail.
+function Bubble({ x, y, top, scale, s }: { x: SharedValue<number>; y: SharedValue<number>; top: number; scale: SharedValue<number>; s: number }) {
+  // Pops out of the top of the foe's head (top px above its feet), anchored at the tail.
   const transform = useDerivedValue(() => {
     const k = scale.value;
     const ax = Math.round(x.value) * s;
-    const ay = Math.round(y.value - 16) * s;
+    const ay = Math.round(y.value - top) * s;
     return [{ translateX: ax }, { translateY: ay }, { scale: k }, { translateX: -5.5 * s }, { translateY: -14 * s }];
   });
   return (
     <Group transform={transform}>
       <Picture picture={bubblePicture(s)} />
     </Group>
+  );
+}
+
+// The quest log's one entry for now: the butcher's hut, tracking the wood you're carrying.
+function QuestTracker({ wood }: { wood: number }) {
+  const have = Math.min(wood, HUT_WOOD);
+  const ready = have >= HUT_WOOD;
+  return (
+    <Animated.View entering={SlideInLeft.duration(240)} accessibilityLabel={`Quest: rebuild the butcher's hut. Wood ${have} of ${HUT_WOOD}.${ready ? ' Ready to bring to the butcher.' : ''}`}>
+      <Framed depth={1} fill={colors.butter}>
+        <View style={st.quest}>
+          <Text style={t.statSoft}>QUEST</Text>
+          <Text style={[t.caption, { fontSize: 14 }]}>Rebuild the butcher's hut</Text>
+          <View style={st.counter}>
+            <Icon pic={logPicture(1)} w={14} h={9} />
+            <Text style={t.stat}>
+              {have}/{HUT_WOOD}
+            </Text>
+            <SegBar value={have} max={HUT_WOOD} segs={HUT_WOOD} fill={colors.questGreen} height={5} />
+          </View>
+          {ready ? <Text style={[t.statSoft, { color: colors.ink }]}>BRING IT TO HIM</Text> : null}
+        </View>
+      </Framed>
+    </Animated.View>
+  );
+}
+
+// The old butcher, breathing slowly where he stands.
+function OldMan({ beat, s }: { beat: SharedValue<number>; s: number }) {
+  const frames = useMemo(() => [oldManPicture(0, s), oldManPicture(1, s)], [s]);
+  const pic = useDerivedValue(() => frames[beat.value]);
+  return (
+    <>
+      <Group transform={[{ translateX: Math.round(BUTCHER.x - 5) * s }, { translateY: Math.round(BUTCHER.y - 1) * s }]}>
+        <Oval x={0} y={0} width={10 * s} height={3 * s} color={colors.ink} opacity={0.14} />
+      </Group>
+      <Group transform={[{ translateX: Math.round(BUTCHER.x - 8) * s }, { translateY: Math.round(BUTCHER.y - 21) * s }]}>
+        <Picture picture={pic} />
+      </Group>
+    </>
   );
 }
 
@@ -807,6 +962,7 @@ const st = StyleSheet.create({
   hudPanel: { paddingHorizontal: 10, paddingVertical: 6, gap: 4 },
   counters: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   counter: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  quest: { paddingHorizontal: 10, paddingVertical: 6, gap: 3, width: 180 },
   toast: { position: 'absolute', left: 12, right: 12 },
   toastText: { fontSize: 14, lineHeight: 19, paddingHorizontal: 12, paddingVertical: 8, textAlign: 'center' },
   sheetWrap: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(59,42,74,0.35)', justifyContent: 'center', padding: 20 },
