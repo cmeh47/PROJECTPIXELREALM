@@ -9,6 +9,7 @@
     "@expo/metro-runtime": "~58.0.15",
     "@shopify/react-native-skia": "2.14.0",
     "expo": "~58.0.19",
+    "expo-audio": "~58.0.10",
     "expo-font": "~58.0.10",
     "expo-haptics": "~58.0.7",
     "expo-status-bar": "~58.0.4",

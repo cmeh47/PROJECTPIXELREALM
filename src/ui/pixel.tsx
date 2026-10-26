@@ -112,6 +112,7 @@ const ICONS: Record<string, string[]> = {
   sword: ['.......X', '......X.', '.....X..', '.X..X...', '..XX....', '..XX....', '.X..X...', 'X.......'],
   heart: ['.XX.XX..', 'XXXXXXX.', 'XXXXXXX.', '.XXXXX..', '..XXX...', '...X....', '........', '........'],
   flee: ['X...X...', '.X...X..', '..X...X.', '..X...X.', '.X...X..', 'X...X...', '........', '........'],
+  next: ['........', '........', 'XXXXXXX.', '.XXXXX..', '..XXX...', '...X....', '........', '........'],
 };
 
 export function PixelIcon({ name, size = 3, color = colors.ink }: { name: keyof typeof ICONS; size?: number; color?: string }) {

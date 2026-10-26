@@ -7,7 +7,7 @@ import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { BattleScreen } from './src/combat/BattleScreen';
+import { BaseScreen } from './src/base/BaseScreen';
 import { colors } from './src/theme';
 
 export default function App() {
@@ -24,7 +24,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.parchment }}>
       <SafeAreaProvider>
         <StatusBar style="dark" />
-        {loaded ? <BattleScreen /> : <View style={{ flex: 1, backgroundColor: colors.parchment }} />}
+        {loaded ? <BaseScreen /> : <View style={{ flex: 1, backgroundColor: colors.parchment }} />}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

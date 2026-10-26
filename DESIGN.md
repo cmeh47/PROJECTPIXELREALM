@@ -61,6 +61,19 @@ classic pixel art.
 | `questGreen` | `#5FB894` | Quest complete check, positive deltas |
 | `epicPurple` | `#A77BE0` | Rare/epic rewards |
 
+### World (base scenery)
+
+Deeper tones for props on the overworld, so trees and paths read clearly against the mint meadow.
+
+| Token | Hex | Use |
+|---|---|---|
+| `leaf` | `#4E9E82` | Tree canopies |
+| `leafDeep` | `#3A7A6A` | Canopy shade and tier lines |
+| `bark` | `#8C6B5E` | Tree trunks, stumps |
+| `barkDeep` | `#6B4F4A` | Trunk shade, bark marks |
+| `stone` | `#DCD3E6` | Cobblestones |
+| `stoneDeep` | `#B2A6C6` | Mortar between cobblestones, path rim |
+
 ### Night mode ("Moonlit Forest")
 
 | Token | Hex |
@@ -263,4 +276,5 @@ Timing windows (starting guesses, tuned on device): Perfect about ±80 ms, parry
 - Hit flash: one frame of the sprite tinted white.
 - One timing sheet (`docs/timing.md`) lists frame counts and ticks for every action of every character.
 - Reduce Motion tones down shake, flashes and slow-downs.
+- Ambient motion (grass and flowers swaying as gusts cross the base) steps on the same 12 fps tick, a pixel at a time, pauses during battles and is off with Reduce Motion.
 - Reference: the combat animation storyboards (Sheet 1: action frames, Sheet 2: combat beats).

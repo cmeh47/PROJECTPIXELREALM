@@ -18,6 +18,12 @@ export const PAL: Record<string, string> = {
   G: colors.manaBlue,
   M: colors.mint,
   m: colors.questGreen,
+  f: colors.leaf,
+  F: colors.leafDeep,
+  w: colors.bark,
+  W: colors.barkDeep,
+  o: colors.stone,
+  O: colors.stoneDeep,
 };
 
 // A grid of art pixels. Sprites are drawn as fills, then outlined in ink.
