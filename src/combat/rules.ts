@@ -1,5 +1,7 @@
 // Combat numbers for the prototype. Everything here is a first guess to tune by feel.
 
+import { CLASS_STATS, type HeroClass, type StatKey } from '../sprites/hero';
+
 export type Grade = 'perfect' | 'good' | 'miss' | 'early';
 export type Defense = 'parry' | 'dodge' | 'early' | 'hit';
 
@@ -86,8 +88,112 @@ export const MOVES: Move[] = [
   },
 ];
 
+// ---------- Mage spells: glyph chains ----------
+// Every glyph of a spell appears at once, marked I, II, III, IV inside. Only the next one has a ring
+// closing on it; each is graded like a strike rune, on the UI thread. When the chain is done the
+// spell is cast once: its damage (or healing) is the sum of each glyph's grade, scaled by MAG.
+// x / y are art pixels inside the target's frame (a foe's 64 x 48, or an ally's 56 x 40).
+// next: the glyph sits on the next foe over (Arc Chain jumping); in a solo fight it stays on the same one.
+// solo: where a `next` glyph goes when there is no second foe, so it doesn't sit on top of another.
+export type GlyphSpec = { delay: number; x: number; y: number; next?: boolean; solo?: [number, number] };
+export type SpellFx = 'ember' | 'frost' | 'arc' | 'mend';
+
+export type Spell = {
+  id: string;
+  name: string;
+  kind: string;
+  cost: number;
+  damage: number; // per glyph (healing per glyph for Mend)
+  brk: number; // per glyph
+  glyphs: GlyphSpec[];
+  desc: string;
+  fx: SpellFx;
+  heal?: boolean;
+  shatter?: boolean;
+  windTicks: number;
+};
+
+export const SPELLS: Spell[] = [
+  {
+    id: 'frost',
+    name: 'Frost Lance',
+    kind: 'PIERCE',
+    cost: 2,
+    damage: 8,
+    brk: 10,
+    fx: 'frost',
+    shatter: true,
+    windTicks: 3,
+    desc: 'Three glyphs in a line, uneven timing. Three Perfects shatter the frost for bonus Break.',
+    glyphs: [
+      { delay: 700, x: 20, y: 17 },
+      { delay: 520, x: 32, y: 25 },
+      { delay: 860, x: 44, y: 33 },
+    ],
+  },
+  {
+    id: 'arc',
+    name: 'Arc Chain',
+    kind: 'SHOCK',
+    cost: 3,
+    damage: 6,
+    brk: 7,
+    fx: 'arc',
+    windTicks: 3,
+    desc: 'Four quick glyphs zigzag across two foes, and the bolt jumps between them. Alone, all four hit one.',
+    glyphs: [
+      { delay: 620, x: 22, y: 14 },
+      { delay: 420, x: 34, y: 28 },
+      { delay: 560, x: 30, y: 14, next: true, solo: [42, 10] },
+      { delay: 460, x: 42, y: 28, next: true, solo: [50, 24] },
+    ],
+  },
+  {
+    id: 'mend',
+    name: 'Mend',
+    kind: 'HEAL',
+    cost: 2,
+    damage: 6,
+    brk: 0,
+    fx: 'mend',
+    heal: true,
+    windTicks: 3,
+    desc: 'Two slow glyphs over the most hurt ally (or you). Perfects heal more. Does no damage.',
+    glyphs: [
+      { delay: 760, x: 16, y: 20 },
+      { delay: 760, x: 28, y: 30 },
+    ],
+  },
+  {
+    id: 'ember',
+    name: 'Ember Bolt',
+    kind: 'BASIC',
+    cost: -1,
+    damage: 7,
+    brk: 6,
+    fx: 'ember',
+    windTicks: 2,
+    desc: 'A fast fire bolt from one glyph. Earns 1 AP instead of spending it.',
+    glyphs: [{ delay: 560, x: 32, y: 27 }],
+  },
+];
+export const SHATTER_DAMAGE = 12;
+export const SHATTER_BREAK = 45;
+
 export const GRADE_MULT: Record<Grade, number> = { perfect: 1.6, good: 1, miss: 0.6, early: 0.6 };
 export const GRADE_BREAK: Record<Grade, number> = { perfect: 1.5, good: 1, miss: 0.3, early: 0.3 };
+
+// ---------- Class stats in battle (out of 10, from character creation) ----------
+// HP sets max health, STR scales weapon moves, MAG scales spells and healing, DEF softens enemy
+// hits and SPD decides who acts first in a group round. Warrior 100 HP, Mage 85.
+export type Stats = Record<StatKey, number>;
+export const statsOf = (cls: HeroClass): Stats => CLASS_STATS[cls];
+export const maxHpOf = (st: Stats) => 60 + 5 * st.hp;
+// STR 7 hits x1.16, STR 3 x0.84; MAG 8 casts x1.24.
+export const powerMult = (stat: number) => 0.6 + 0.08 * stat;
+// DEF 7 takes x0.85 of a hit, DEF 3 x1.05.
+export const guardMult = (def: number) => 1.2 - 0.05 * def;
+export const hitOn = (base: number, st: Stats) => Math.max(1, Math.round(base * guardMult(st.def)));
 
 export const HERO_MAX_HP = 100;
 export const FOE_MAX_HP = 120;
@@ -124,6 +230,8 @@ export const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
 // Party allies. In live co-op each ally is a real player running their own runes on their phone;
 // in this prototype they are Echoes whose timing is rolled.
 export const ECHO_STRIKE = { damage: 7, brk: 9, hits: 2 };
+// A mage Echo casts from where it stands: two glyphs' worth of Frost Lance, rolled.
+export const ECHO_SPELL = { damage: 7, brk: 8, glyphs: 2 };
 export function echoGrade(): Grade {
   const r = Math.random();
   return r < 0.45 ? 'perfect' : r < 0.85 ? 'good' : 'miss';

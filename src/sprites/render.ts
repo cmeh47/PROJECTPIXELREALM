@@ -50,6 +50,11 @@ export function gridPicture(key: string, grid: Grid, s: number) {
   return cached(`g${key}${s}`, () => drawLayers([{ grid, alpha: 1 }], s));
 }
 
+// For one-off effect frames (a lance or a bolt drawn between two live points): not cached.
+export function fxPicture(grid: Grid, s: number) {
+  return drawLayers([{ grid, alpha: 1 }], s);
+}
+
 // Foggy Forest backdrop, drawn to any field size: misty tree lines above the horizon,
 // a scroll-colored clearing below it, grass tufts scattered through the depth.
 function rng(seed: number) {
