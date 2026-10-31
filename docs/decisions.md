@@ -14,6 +14,8 @@ Decided on 2026-10-25.
 | Art | Aseprite, drawn by Cameron and Claude |
 | Prototype approach | Animation storyboards first, approved before code |
 | Title | Not decided yet |
+| Sign-in | Guest first (Supabase anonymous sign-in, no screen), decided 2026-10-31. Email, Apple or Google can be linked to the same account later to keep a save across devices. |
+| Saving | The server stores each base. Players can read only their own row and change it only through server functions (`chop`, `shroomie_battle`, `reset_base`, `butcher_step`), which check the rules. The butcher's rebuild runs on the server's clock. The app changes its own state at once, then applies the server's copy when its calls are answered, so a refused change rolls back. Battle results are still trusted from the app for now. |
 
 ## Milestones
 

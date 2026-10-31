@@ -27,6 +27,9 @@ Milestone 1 is the combat-feel prototype: one battle in `src/combat/`. The playe
 - Every shared change (spending resources, building, boss damage) goes through a Supabase server function, never a direct client write.
 - Combat input timing is judged on the UI thread, not in JavaScript.
 - Keep secrets out of the repo. Use a git-ignored `.env` and document required variables here.
+  - `EXPO_PUBLIC_SUPABASE_URL`: the project's API URL (`https://<ref>.supabase.co`).
+  - `EXPO_PUBLIC_SUPABASE_ANON_KEY`: the publishable (anon) key. It ships inside the app by design. Never put the service role key in the app or the repo.
+  - Copy `.env.example` to `.env`. Without these the game runs offline and nothing is saved.
 
 ## Commands
 
@@ -36,6 +39,7 @@ npx expo start                 # dev server: scan the QR code with Expo Go, or p
 npm run typecheck              # tsc --noEmit
 npm run export:web             # static web build in dist/
 npx expo install <package>     # add packages (picks SDK-compatible versions)
+supabase db push               # apply supabase/migrations (or paste a migration into the SQL editor)
 ```
 
 If `npx expo install` fails behind a proxy, prefix it with `EXPO_OFFLINE=1`.
@@ -45,6 +49,7 @@ If `npx expo install` fails behind a proxy, prefix it with `EXPO_OFFLINE=1`.
 - `App.tsx` loads fonts and gesture/safe-area roots. `src/boot/index.web.ts` loads CanvasKit before mounting on web; `src/boot/index.ts` is the phone entry.
 - `src/sprites/`: pixel grid, character layers (hero, Mossback Toadstool) and Skia picture rendering.
 - `src/combat/`: `rules.ts` (numbers), `anims.ts` (12 fps frame tables), `useCombatInput.ts` (UI-thread timing), `BattleScene.tsx` (Skia canvas), `BattleScreen.tsx` (the battle and menus).
+- `src/net/`: `supabase.ts` (client, guest sign-in), `useBaseSave.ts` (loads the base, sends each change to a server function in order, applies the server's copy). Server side: `supabase/migrations/` (the `bases` table, read-only to players, and the functions that change it).
 - `src/ui/pixel.tsx`: framed panels, pixel buttons, bars, chips and icons.
 - `src/sprites/overworld.ts`: small top-down sprites for the base (hero walk cycle, hopping toadstool, trees, stump, cottage, "!" bubble, the old butcher, his hut ruins, shack build stages and hammer).
 - `src/base/`: `map.ts` (layout, trees, grass and flower spots), `ground.ts` (ground recipe as plain pixels: cobbled path, pond, wind frames and gust timing, no Skia), `art.ts` (Skia pictures), `WindLayer.tsx` (swaying grass), `Conversation.tsx` (scripted RPG text box: headshot, typed lines, voice, choices, end tags), `npcs.ts` (speakers and scripts: critters, the old butcher), `QuestLog.tsx` (collapsible scroll quest log), `BaseScreen.tsx` (game loop, touch-to-walk, chopping, encounters, NPC talk, quests, the butcher's shack rebuild timer, swirl into `BattleScreen`).

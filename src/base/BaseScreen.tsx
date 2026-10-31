@@ -29,6 +29,7 @@ import {
 import { BUTCHER, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
 import { QuestLog } from './QuestLog';
+import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
 import { BUTCHER_SCRIPT, BUTCHER_SPEAKER, CRITTER_SCRIPT, critterSpeaker } from './npcs';
 import { WindLayer } from './WindLayer';
 
@@ -90,6 +91,14 @@ function newToads(): Toad[] {
     mode: 'idle',
     status: 'wild',
   }));
+}
+// Critters settle by the cottage, each in its own spot.
+function settleCritter(td: Toad) {
+  td.home = { x: HOUSE.x + 10 + td.id * 12, y: HOUSE.y + 66 + (td.id % 2) * 8 };
+  td.x = td.home.x;
+  td.y = td.home.y;
+  td.from = td.home;
+  td.to = td.home;
 }
 const newTrees = (): Tree[] => TREES.map((tr) => ({ ...tr, hits: 0, felledAt: null, flash: 0, shake: 0 }));
 
@@ -234,6 +243,7 @@ export function BaseScreen() {
         if (result === 'won') {
           // He's had enough. Once the flash clears, he talks.
           setStage('spared');
+          save({ fn: 'butcher_step', step: 'beaten' });
           setTimeout(() => openTalk(BUTCHER_SPEAKER, BUTCHER_SCRIPT, 'spared'), 650);
         } else if (result === 'fled') {
           stepBack(BUTCHER);
@@ -246,16 +256,13 @@ export function BaseScreen() {
         if (result === 'won') {
           td.status = 'gone';
           setWood((w) => w + 3);
+          save({ fn: 'shroomie_battle', idx: id, result: 'won' });
           for (let k = 0; k < 8; k++) leaves.current.push({ x: td.x, y: td.y - 6, vx: rand(-30, 30), vy: rand(-50, -10), life: 600 });
           setTimeout(() => pop('+3 WOOD', colors.butter, td.x, td.y - 20), 300);
         } else if (result === 'tamed') {
           td.status = 'critter';
-          // Critters settle by the cottage.
-          td.home = { x: HOUSE.x + 10 + id * 12, y: HOUSE.y + 66 + (id % 2) * 8 };
-          td.x = td.home.x;
-          td.y = td.home.y;
-          td.from = td.home;
-          td.to = td.home;
+          settleCritter(td);
+          save({ fn: 'shroomie_battle', idx: id, result: 'tamed' });
           setTimeout(() => pop('NEW CRITTER!', colors.mint, td.x, td.y - 20, { big: true }), 300);
           setTimeout(() => setBanner(`Your ${td.name} moved in by the cottage. Tap it to say hi!`), 700);
         } else if (result === 'fled') {
@@ -325,6 +332,7 @@ export function BaseScreen() {
     if (end === 'fight') startEncounter({ kind: 'butcher' });
     else if (end === 'accept') {
       setStage('quest');
+      save({ fn: 'butcher_step', step: 'accept' });
       haptic('success');
       pop('NEW QUEST!', colors.butter, BUTCHER.x, BUTCHER.y - 30, { big: true });
       setTimeout(() => setBanner(`Quest: rebuild the butcher's hut. Bring him ${HUT_WOOD} wood.`), 500);
@@ -335,8 +343,12 @@ export function BaseScreen() {
       buildStart.current = Date.now();
       setBuildLeft(BUILD_MS);
       setStage('building');
+      save({ fn: 'butcher_step', step: 'handin' });
       haptic('success');
-    } else if (end === 'opened') setStage('shop');
+    } else if (end === 'opened') {
+      setStage('shop');
+      save({ fn: 'butcher_step', step: 'opened' });
+    }
   };
 
   // The rebuild's clock. It ticks once a second for the bar over the shack.
@@ -359,6 +371,28 @@ export function BaseScreen() {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
+
+  // ---------- Saving ----------
+  // The server keeps the base between sessions. Each change above is made here first and sent as a
+  // server call; whenever the server answers, its copy wins.
+  const applySaved = (b: SavedBase) => {
+    setWood(b.wood);
+    b.shroomies.forEach((status, id) => {
+      const td = toads.current[id];
+      if (!td || td.status === status) return;
+      td.status = status;
+      if (status === 'critter') settleCritter(td);
+      else if (status === 'wild') Object.assign(td, newToads()[id]);
+    });
+    if (b.buildStartedAt != null) buildStart.current = b.buildStartedAt;
+    const next: ButcherStage = b.butcher === 'building' && b.buildDone ? 'built' : b.butcher;
+    // If this device's timer finished a moment before the server's, keep showing the finished shack.
+    if (!(next === 'building' && stageRef.current === 'built')) setStage(next);
+    force();
+  };
+  const { status: saveStatus, send: save } = useBaseSave(applySaved);
+  const saveRef = useRef(save);
+  saveRef.current = save;
 
   // ---------- The game loop ----------
   useEffect(() => {
@@ -387,6 +421,7 @@ export function BaseScreen() {
             tr.shake = 160;
             tr.flash = 80;
             setWood((w) => w + 1);
+            saveRef.current({ fn: 'chop' });
             haptic('light');
             pop('+1', colors.butter, tr.x, tr.y - 44);
             for (let k = 0; k < 3; k++) leaves.current.push({ x: tr.x + rand(-10, 10), y: tr.y - rand(18, 36), vx: rand(-12, 12), vy: rand(-20, 0), life: 700 });
@@ -639,8 +674,11 @@ export function BaseScreen() {
   };
 
   const resetBase = () => {
-    toads.current = newToads();
+    // Every Shroomie comes back, except the ones that became critters.
+    const kept = toads.current;
+    toads.current = newToads().map((td, i) => (kept[i].status === 'critter' ? kept[i] : td));
     trees.current = newTrees();
+    save({ fn: 'reset_base' });
     hero.current = { x: SPAWN.x, y: SPAWN.y, dir: 'down', frame: 0, walkMs: 0, grace: 0 };
     setWood(0);
     setBanner(null);
@@ -743,7 +781,10 @@ export function BaseScreen() {
             <View style={{ gap: 8 }}>
               <Framed depth={1}>
                 <View style={st.hudPanel}>
-                  <Text style={t.statSoft}>YOUR BASE</Text>
+                  <View style={st.baseTitle}>
+                    <Text style={t.statSoft}>YOUR BASE</Text>
+                    <SaveBadge status={saveStatus} />
+                  </View>
                   <View style={st.counters}>
                     <View style={st.counter} accessibilityLabel={`${wood} wood`}>
                       <Icon pic={logPicture(2)} w={28} h={18} />
@@ -902,6 +943,25 @@ function Bubble({ x, y, top, scale, s }: { x: SharedValue<number>; y: SharedValu
   );
 }
 
+const SAVE_LABELS: Record<SaveStatus, string> = { offline: 'OFFLINE', loading: 'LOADING', saving: 'SAVING', saved: 'SAVED', error: 'NOT SAVED' };
+const SAVE_A11Y: Record<SaveStatus, string> = {
+  offline: 'Offline: progress is not saved',
+  loading: 'Loading your base',
+  saving: 'Saving',
+  saved: 'Progress saved',
+  error: "Couldn't save the last change",
+};
+
+// A quiet word beside "YOUR BASE" saying whether your progress is safe.
+function SaveBadge({ status }: { status: SaveStatus }) {
+  const warn = status === 'error' || status === 'offline';
+  return (
+    <Text style={[t.statSoft, { fontSize: 10, color: warn ? colors.ink : colors.inkSoft }]} accessibilityLabel={SAVE_A11Y[status]}>
+      · {SAVE_LABELS[status]}
+    </Text>
+  );
+}
+
 // The old butcher, breathing slowly where he stands, or swinging his hammer while he rebuilds.
 function OldMan({ beat, hammer, s }: { beat: SharedValue<number>; hammer: SharedValue<number> | null; s: number }) {
   const frames = useMemo(() => [oldManPicture(0, s), oldManPicture(1, s)], [s]);
@@ -1012,6 +1072,7 @@ const st = StyleSheet.create({
   hudPanel: { paddingHorizontal: 10, paddingVertical: 6, gap: 4 },
   counters: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   counter: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  baseTitle: { flexDirection: 'row', gap: 4, alignItems: 'center' },
   buildBar: { position: 'absolute', left: 0, top: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
   buildTrack: { flex: 1, height: 12, borderWidth: 2, borderColor: colors.ink, backgroundColor: colors.scroll },
   buildFill: { height: '100%', backgroundColor: colors.questGreen },
