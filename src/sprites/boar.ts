@@ -24,8 +24,8 @@ export type BoarPose = {
 // The boar is drawn as one silhouette, not a head stuck on a body, so the skull runs straight into
 // the shoulder hump with no dip between them: a huge wedge of a head, a high bristled hump, and a
 // back that falls away to a small rump. Points are (x, y) at full size, facing left.
-const TOP: [number, number][] = [[0, 12], [1, 9], [3, 7], [6, 5], [9, 3], [12, 1], [15, 0], [19, 0], [22, 1], [25, 3], [28, 6], [31, 8], [33, 10], [34, 11]];
-const BOTTOM: [number, number][] = [[0, 19], [3, 20], [7, 20], [11, 20], [15, 19], [19, 18], [23, 16], [27, 14], [31, 13], [34, 12]];
+const TOP: [number, number][] = [[0, 12], [1, 9], [3, 7], [6, 5], [9, 3], [12, 1], [15, 0], [19, 0], [22, 1], [25, 3], [28, 6], [31, 8], [33, 10], [34, 12]];
+const BOTTOM: [number, number][] = [[0, 19], [3, 20], [7, 20], [11, 20], [15, 19], [19, 18], [23, 17], [27, 16], [31, 16], [34, 15]];
 const HEAD_END = 14; // columns left of this belong to the head and move with headDy
 
 function edge(pts: [number, number][], x: number) {
@@ -67,12 +67,27 @@ function boarBody(g: Grid, ox: number, oy: number, k: number, drop: number, ko =
   const P = (fx: number, fy: number, c: string) => g.set(ox + Math.round(fx * k), oy + Math.round(fy * k) + s(fx), c);
   // Snout: a broad peach disc on the front of the wedge, two nostrils, a shaded underside.
   for (let fy = 11; fy <= 19; fy++) for (let fx = -2; fx <= 3; fx++) if (!(fx === 3 && (fy === 11 || fy === 19)) && !(fx === -2 && (fy <= 11 || fy >= 18))) P(fx, fy, fy >= 18 ? PAL.c : fx === -2 ? PAL.c : PAL.S);
-  P(0, 13, PAL.K);
-  P(0, 16, PAL.K);
-  // Mouth line, then a big tusk curling up out of it.
-  for (let fx = 3; fx <= 8; fx++) P(fx, 18, PAL.W);
-  for (const [fx, fy] of [[6, 19], [6, 18], [6, 17], [5, 16], [5, 15], [4, 14]] as [number, number][]) P(fx, fy, PAL.H);
-  if (k === 1) for (const [fx, fy] of [[7, 19], [7, 18], [6, 16]] as [number, number][]) P(fx, fy, PAL.H);
+  // Nostrils: two dark slits side by side across the snout.
+  P(-1, 14, PAL.K);
+  P(1, 14, PAL.K);
+  if (k === 1) {
+    P(-1, 15, PAL.K);
+    P(1, 15, PAL.K);
+  }
+  // Mouth line under the snout, then a tusk that grows out of it and runs forward past the snout
+  // in a straight line, curling up at the tip like a shallow U.
+  for (let fx = 2; fx <= 8; fx++) P(fx, 18, PAL.W);
+  for (let fx = 4; fx >= -4; fx--) P(fx, 17, PAL.H);
+  P(-5, 16, PAL.H);
+  P(-6, 15, PAL.H);
+  if (k === 1) {
+    // Full size: two pixels thick, a vellum underside, the tip curling up past the snout.
+    for (let fx = 4; fx >= -5; fx--) {
+      P(fx, 16, PAL.H);
+      P(fx, 17, PAL.V);
+    }
+    for (const [fx, fy] of [[-6, 16], [-6, 15], [-7, 15], [-7, 14], [-7, 13], [-8, 13], [-8, 12]] as [number, number][]) P(fx, fy, fy >= 15 ? PAL.V : PAL.H);
+  }
   // Warts: lumps on the cheek and over the snout, because it's an ugly brute.
   for (const [fx, fy] of [[4, 9], [10, 12], [11, 13], [8, 14]] as [number, number][]) P(fx, fy, PAL.W);
   // A small mean eye under a heavy brow.
@@ -101,7 +116,7 @@ function legs(g: Grid, ox: number, gy: number, kind: BoarPose['legs']) {
     }
   };
   const fTop = gy - 6; // under the chest
-  const bTop = gy - 11; // the rump sits high on thin legs
+  const bTop = gy - 8; // short back legs under the small rump
   switch (kind) {
     case 'paw':
       L(ox + 8, fTop, gy - 2, 4, 3);
@@ -145,7 +160,7 @@ export function boarLayers(p: BoarPose): Layer[] {
   const oy = gy - 5 - 20;
   // Head reference point for effects: the snout tip and the tusk.
   const snout = { x: ox, y: oy + 13 + drop };
-  const tusk = { x: ox + 5, y: oy + 15 + Math.round(drop * 0.6) };
+  const tusk = { x: ox - 4, y: oy + 16 + Math.round(drop * 0.9) };
 
   if (p.ko) {
     // Knocked out: slumped flat on its belly, legs folded under, head dropped, eye crossed.
@@ -222,7 +237,7 @@ export function boarOverworld(frame: number, flip = false): Grid {
   };
   const xs = frame === 1 ? [4, 7, 14, 16] : frame === 2 ? [3, 8, 13, 17] : [4, 7, 14, 16];
   const dx = frame === 1 ? [-1, 1, -1, 1] : frame === 2 ? [1, -1, 1, -1] : [0, 0, 0, 0];
-  xs.forEach((x, i) => leg(x, i < 2 ? 2 : 1, dx[i], i < 2 ? base - 2 : base - 5));
+  xs.forEach((x, i) => leg(x, i < 2 ? 2 : 1, dx[i], i < 2 ? base - 2 : base - 3));
   boarBody(g, 1, base - 11 + bob, 0.5, frame === 3 ? 4 : 0);
   if (flip) {
     const c = g.c.slice();
