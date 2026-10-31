@@ -72,7 +72,7 @@ type Phase = 'menu' | 'moves' | 'tame' | 'flee' | 'acting' | 'won' | 'lost' | 't
 // Battle state lives in a ref and is mutated by the async combat sequences; force() repaints.
 // pose === null means "breathe with the shared idle beat".
 type HeroState = { name: string; look: HeroLook; stats: Stats; maxHp: number; hp: number; pose: HeroPose | null; z?: number };
-type FoeState = { name: string; look: number; kind?: FoePose['kind']; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
+type FoeState = { name: string; look: number; kind?: FoePose['kind']; maxHp: number; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
 type Game = { heroes: HeroState[]; foes: FoeState[] };
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -94,10 +94,23 @@ const isSpell = (a: Action): a is Spell => 'glyphs' in a;
 const HERO_NAMES = ['You', 'Mint Ranger', 'Gold Warden', 'Sky Mage'];
 const FOE_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie'];
 
-export type Encounter = { look: number; name: string; kind?: FoePose['kind'] };
+// dizzy: the boar charged past you on the map and opens the fight Broken.
+export type Encounter = { look: number; name: string; kind?: FoePose['kind']; dizzy?: boolean };
+// A boar is a quick hunt: less health than a Shroomie, and it can't be tamed.
+const BOAR_MAX_HP = 80;
 
 // Lines that change with who you're fighting: a toadstool and its club, or the old butcher.
 function foeCopy(kind: FoePose['kind']) {
+  if (kind === 'boar')
+    return {
+      intro: (name: string) => `A ${name} snorts and lowers its tusks.`,
+      tell: (name: string) => `The ${name} paws the ground!`,
+      win: 'The boar slumps over. Victory!',
+      broken: 'The boar is Broken! It staggers, dizzy. Hit it hard.',
+      steady: 'The boar shakes its head and snorts. Your turn.',
+      block: 'The boar blocks your way!',
+      lost: 'The boar wins this round. Parry as the tusks reach your blade.',
+    };
   return kind === 'butcher'
     ? {
         intro: (name: string) => `The ${name} raises his cleaver. He won't back down.`,
@@ -119,6 +132,8 @@ function foeCopy(kind: FoePose['kind']) {
       };
 }
 export type BattleResult = 'won' | 'lost' | 'tamed' | 'fled';
+// perfect: the finishing hit was graded Perfect (a boar then drops two meat).
+export type BattleInfo = { perfect: boolean };
 
 function newGame(full: boolean, encounter?: Encounter, you?: Hero): Game {
   const heroes = (full ? [0, 1, 2, 3] : [0]).map((i) => {
@@ -127,8 +142,16 @@ function newGame(full: boolean, encounter?: Encounter, you?: Hero): Game {
     const maxHp = maxHpOf(stats);
     return { name: HERO_NAMES[i], look, stats, maxHp, hp: maxHp, pose: null };
   });
-  const foes = (full ? [0, 1, 2] : [0]).map((j) => ({ name: FOE_NAMES[j], look: j, hp: FOE_MAX_HP, brk: 0, broken: false, out: null, pose: null }));
-  if (encounter && !full) Object.assign(foes[0], encounter);
+  const foes: FoeState[] = (full ? [0, 1, 2] : [0]).map((j) => ({ name: FOE_NAMES[j], look: j, maxHp: FOE_MAX_HP, hp: FOE_MAX_HP, brk: 0, broken: false, out: null, pose: null }));
+  if (encounter && !full) {
+    const { dizzy, ...who } = encounter;
+    Object.assign(foes[0], who);
+    if (encounter.kind === 'boar') foes[0].maxHp = foes[0].hp = BOAR_MAX_HP;
+    if (dizzy) {
+      foes[0].broken = true;
+      foes[0].brk = BREAK_MAX;
+    }
+  }
   return { heroes, foes };
 }
 
@@ -144,7 +167,7 @@ const mostHurt = (g: Game) =>
 
 // encounter: a fight started on the base map against one Shroomie or the butcher; onDone hands the result back.
 // Without an encounter it is the practice arena, with the SOLO / PARTY 4 toggle and onExit.
-export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: Encounter; you?: Hero; onDone?: (r: BattleResult) => void; onExit?: () => void } = {}) {
+export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: Encounter; you?: Hero; onDone?: (r: BattleResult, info: BattleInfo) => void; onExit?: () => void } = {}) {
   const insets = useSafeAreaInsets();
 
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
@@ -170,7 +193,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
   const [hint, setHint] = useState('');
   const kind = encounter?.kind ?? 'shroomie';
   const copy = foeCopy(kind);
-  const [line, setLine] = useState(copy.intro(encounter?.name ?? 'Mossback Shroomie'));
+  const [line, setLine] = useState(encounter?.dizzy ? `The ${encounter.name} skidded past you and is dizzy. Strike now!` : copy.intro(encounter?.name ?? 'Mossback Shroomie'));
   const [pops, setPops] = useState<Pop[]>([]);
   const [sel, setSel] = useState(0);
   const [treat, setTreat] = useState(false);
@@ -361,6 +384,10 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
     [pop],
   );
 
+  // The grade of the hit being dealt right now, if it was your own timed strike or spell, so a
+  // boar knows whether the finishing hit was Perfect.
+  const lastGrade = useRef<Grade | null>(null);
+  const finalPerfect = useRef(false);
   const dealDamage = useCallback((j: number, dmg: number, brkGain: number) => {
     const f = game.current.foes[j];
     const real = Math.round(dmg * (f.broken ? 1.5 : 1));
@@ -375,6 +402,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
     }
     const dead = f.hp <= 0;
     if (dead) {
+      finalPerfect.current = lastGrade.current === 'perfect';
       f.out = 'down';
       f.pose = null;
     }
@@ -791,7 +819,9 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
         const strong = grade === 'perfect' || grade === 'good';
         const slash = playHero(0, strong ? HERO.slash : HERO.weakSlash);
         await wait(TICK);
+        lastGrade.current = grade;
         const res = dealDamage(j, move.damage * GRADE_MULT[grade] * powerMult(g0.heroes[0].stats.str), move.brk * GRADE_BREAK[grade]);
+        lastGrade.current = null;
         if (!res.dead) setFoePose(j, FOE.hurt[0][1]);
         const fb = g.foe(j);
         const you = g.hero(0);
@@ -967,7 +997,9 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
         const at = foeCore(j);
         clearGlyphs();
         await castAt(0, spell.fx, at);
+        lastGrade.current = perfects === pts.length ? 'perfect' : 'good';
         let res = spellHit(j, sumOn(j, spell.damage, GRADE_MULT) * power, sumOn(j, spell.brk, GRADE_BREAK));
+        lastGrade.current = null;
         flashFx(burstFx(spell.fx === 'ember' ? 'ember' : spell.fx === 'arc' ? 'arc' : 'frost', at), TICK * 3);
         doShake(perfects === pts.length ? 3 : 2);
         if (spell.fx === 'arc' && j2 !== j && !g0.foes[j2].out) {
@@ -1203,6 +1235,8 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
     ? `The pack is cleared. +40 XP each for the party, and ${3 * downed} wood for the base.`
     : kind === 'butcher'
       ? 'The old man lowers his cleaver and sits down hard. +40 XP.'
+      : kind === 'boar'
+        ? `The ${g0.foes[0].name} is down. +25 XP, and it dropped ${finalPerfect.current ? '2 boar meat' : '1 boar meat'}: pick it up in the woods.`
       : `The ${g0.foes[0].name} is defeated. +40 XP and 3 wood for the base.`;
 
   return (
@@ -1223,7 +1257,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
               : null}
             {field && party
               ? g0.foes.map((f, j) =>
-                  f.out ? null : <FieldBar key={`fb${j}`} field={field} slot={field.foes[j]} dx={fdx[j]} dy={fdy[j]} value={f.hp} max={FOE_MAX_HP} />,
+                  f.out ? null : <FieldBar key={`fb${j}`} field={field} slot={field.foes[j]} dx={fdx[j]} dy={fdy[j]} value={f.hp} max={f.maxHp} />,
                 )
               : null}
             {field && party && choosing && !g0.foes[target]?.out ? <TargetMarker field={field} slot={field.foes[target]} beat={beat} /> : null}
@@ -1268,7 +1302,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
                   </View>
                   <View style={st.barRow}>
                     <Text style={[t.stat, st.barLabel]}>HP</Text>
-                    <SegBar value={shown.hp} max={FOE_MAX_HP} segs={16} fill={colors.hpRose} height={6} />
+                    <SegBar value={shown.hp} max={shown.maxHp} segs={16} fill={colors.hpRose} height={6} />
                   </View>
                   <View style={st.barRow}>
                     <Text style={[t.stat, st.barLabel]}>BREAK</Text>
@@ -1372,7 +1406,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
                     </View>
                   </PixelButton>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    {kind !== 'butcher' ? (
+                    {kind === 'shroomie' ? (
                       <PixelButton style={{ flex: 1 }} height={84} fill={colors.mint} shadow={colors.questGreen} onPress={() => setPhase('tame')} accessibilityLabel="Tame">
                         <View style={st.btnRow}>
                           <PixelIcon name="heart" size={3} />
@@ -1536,11 +1570,13 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
                             : encounter
                               ? kind === 'butcher'
                                 ? `You backed off. The ${encounter.name} is still guarding his hut.`
+                                : kind === 'boar'
+                                ? `You backed off. The ${encounter.name} is still rooting around the woods.`
                                 : `You backed off. The ${encounter.name} is still wandering your base.`
                               : 'You slipped away into the fog. No rewards from this room.'}
                     </Text>
-                    <PixelButton height={52} onPress={() => (onDone ? onDone(phase as BattleResult) : reset(full))} style={{ marginTop: 'auto' }}>
-                      <Text style={[t.buttonSmall, st.cta]}>{onDone ? 'Back to base' : 'Fight again'}</Text>
+                    <PixelButton height={52} onPress={() => (onDone ? onDone(phase as BattleResult, { perfect: finalPerfect.current }) : reset(full))} style={{ marginTop: 'auto' }}>
+                      <Text style={[t.buttonSmall, st.cta]}>{onDone ? (kind === 'boar' ? 'Back to the woods' : 'Back to base') : 'Fight again'}</Text>
                     </PixelButton>
                   </View>
                 </Framed>

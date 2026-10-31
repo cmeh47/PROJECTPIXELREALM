@@ -153,7 +153,7 @@ function legs(g: Grid, ox: number, gy: number, kind: BoarPose['legs']) {
 export function boarLayers(p: BoarPose): Layer[] {
   const g = new Grid(BOAR_W, BOAR_H);
   const fx = new Grid(BOAR_W, BOAR_H);
-  const ox = 14 + (p.x ?? 0);
+  const ox = 18 + (p.x ?? 0);
   const gy = BOAR_GROUND - (p.lift ?? 0);
   const drop = p.headDy ?? 0;
   // The body's chest bottom (row 20 of the silhouette) sits on the legs.
@@ -314,6 +314,34 @@ const COIN = ['.bbbbb.', 'bBBbbbb', 'bBbbbbb', 'bbbbbbb', 'bbbbbbb', 'bbbbbbb', 
 export function coinGrid(): Grid {
   const g = new Grid(9, 9);
   g.stamp(COIN, 1, 1);
+  g.outline(PAL.K);
+  return g;
+}
+
+// The sign by the gap in the east tree ring: a plank on a post, with a little boar head painted on
+// it, pointing the way to the Boar Woods. 18 x 20, foot of the post at (9, 19).
+export function signGrid(): Grid {
+  const g = new Grid(18, 20);
+  // A pale plank: a little boar head with its tusk on the left, an arrow pointing out of the gap.
+  g.stamp(
+    [
+      'wwwwwwwwwwwwwwww',
+      'wCCCCCCCCCCCCCCw',
+      'wCCCWWCCCCCKCCCw',
+      'wCCWWWWWCCCKKCCw',
+      'wSKWWKWWCKKKKKCw',
+      'wSSHWWWWCCCKKCCw',
+      'wCHCWWCCCCCKCCCw',
+      'wCCCCCCCCCCCCCCw',
+      'wwwwwwwwwwwwwwww',
+    ],
+    1,
+    1,
+  );
+  for (let y = 10; y < 20; y++) {
+    g.set(8, y, PAL.W);
+    g.set(9, y, PAL.w);
+  }
   g.outline(PAL.K);
   return g;
 }

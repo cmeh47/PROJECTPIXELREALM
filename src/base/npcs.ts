@@ -63,9 +63,29 @@ export const BUTCHER_SCRIPT: Script = {
 
   building: { say: "Can't stop now, I'm hammering! She'll be done before you know it.", mood: 'calm', name: 'Butcher' },
 
-  // Buying meat and the trips to town come later; for now he just tells you about them.
+  // He buys meat at his shop (see butcherScript). The trips to town come later.
   opened: { say: "She's done! A proper butcher shack again. Thank you, friend.", mood: 'calm', name: 'Butcher', next: 'opened2' },
   opened2: { say: "Bring me any meat you find, and I'll pay you for it.", mood: 'calm', next: 'opened3' },
   opened3: { say: 'And when I take it into town to sell, half the profit is yours.', mood: 'calm', end: 'opened' },
-  shop: { say: "Got any meat for me? I'll pay fair, and half the town profit is yours.", mood: 'calm', name: 'Butcher' },
+  shop: { say: 'Got any meat for me? Boars root around in the woods past the east gap.', mood: 'calm', name: 'Butcher' },
 };
+
+// The butcher's script with his shop counter filled in: with boar meat in your inventory he offers
+// to buy all of it. End tag 'sell' sells it.
+export function butcherScript(meat: number, price: number): Script {
+  if (meat < 1) return BUTCHER_SCRIPT;
+  return {
+    ...BUTCHER_SCRIPT,
+    shop: {
+      say: "Got any meat for me? I'll pay fair.",
+      mood: 'calm',
+      name: 'Butcher',
+      choices: [
+        { label: `Sell ${meat} boar meat (${meat * price} coins)`, next: 'sold' },
+        { label: 'Not now', next: 'later' },
+      ],
+    },
+    sold: { say: 'Fine meat. Bring me more!', mood: 'calm', end: 'sell' },
+    later: { say: 'Suit yourself. My door is open.', mood: 'calm' },
+  };
+}

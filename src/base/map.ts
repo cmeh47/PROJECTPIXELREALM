@@ -21,8 +21,15 @@ export const POND = { x: 328, y: 316, rx: 36, ry: 22 };
 export const PATH: { x: number; y: number; w: number; h: number }[] = [
   { x: DOOR.x - 12, y: DOOR.y - 7, w: 24, h: 140 },
   { x: DOOR.x - 32, y: DOOR.y + 128, w: 64, h: 41 },
-  { x: DOOR.x + 30, y: DOOR.y + 138, w: 70, h: 21 },
+  // On east past the pond and out through the gap in the tree ring, to the Boar Woods.
+  { x: DOOR.x + 30, y: DOOR.y + 138, w: MAP_W - DOOR.x - 30, h: 21 },
 ];
+
+// The gap in the east tree ring where the path leaves for the Boar Woods: no border trees grow
+// with their trunks between y0 and y1, and walking past x into it takes you to the woods.
+export const EAST_GAP = { x: MAP_W - 10, y0: 206, y1: 290, walkY0: DOOR.y + 136, walkY1: DOOR.y + 161 };
+// The sign by the gap, with a boar head on its board. x, y = the foot of its post.
+export const SIGN = { x: MAP_W - 30, y: DOOR.y + 128 };
 
 export const TOAD_SPAWNS: Pt[] = [
   { x: 134, y: 244 },
@@ -87,7 +94,11 @@ export const TREES: TreeSpot[] = (() => {
       out.push({ id: id++, ...p, variant: Math.floor(rand() * 3), border: false });
     }
   }
-  return out;
+  // Clear the gap, then number the trees by their place in the list (the base indexes them by id).
+  return out
+    .filter((t) => !(t.border && t.x > MAP_W - 30 && t.y > EAST_GAP.y0 && t.y < EAST_GAP.y1))
+    .filter((t) => t.border || Math.hypot(t.x - SIGN.x, t.y - SIGN.y) > 18)
+    .map((t, i) => ({ ...t, id: i }));
 })();
 
 // Ground details, generated once: grass tufts, taller grass clumps, flowers and clover. Grass and

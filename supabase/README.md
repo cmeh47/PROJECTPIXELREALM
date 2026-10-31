@@ -7,6 +7,6 @@ functions the app calls.
 
 1. Create a project at supabase.com.
 2. Authentication → Sign In / Providers: turn on **Allow anonymous sign-ins** (players start as guests).
-3. Apply the migrations in order (`*_save_base.sql`, then `*_heroes.sql`): paste each file in `migrations/` into the SQL editor and run it,
+3. Apply the migrations in order (`*_save_base.sql`, then `*_heroes.sql`, then `*_boar_hunting.sql`): paste each file in `migrations/` into the SQL editor and run it,
    or link the CLI (`supabase link --project-ref <ref>`) and run `supabase db push`.
 4. Put the project URL and publishable key in `.env` (see `.env.example`).
