@@ -1,5 +1,6 @@
 import { Canvas, Circle, DashPathEffect, Group, Line, Picture, type SkPicture } from '@shopify/react-native-skia';
 import { useMemo } from 'react';
+import { Platform } from 'react-native';
 import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 
 import { FOE_GROUND, HERO_GROUND, type FoePose, type HeroPose } from '../sprites/characters';
@@ -8,6 +9,10 @@ import { backdropPicture, foePicture, gridPicture, heroPicture } from '../sprite
 import { GLYPH_C, glyphGrid, type GlyphState } from '../sprites/spells';
 import { colors } from '../theme';
 import type { Field, Slot } from './field';
+
+// Derived-value dependencies matter only on the web; on phones Reanimated tracks them itself and
+// warns when they're passed.
+const webDeps = (deps: unknown[]) => (Platform.OS === 'web' ? deps : undefined);
 
 // Where a sprite frame sits for a slot: hero bodies are 22 px into their frame, foes 36.
 export const heroFrame = (slot: Slot) => ({ x: slot.x - 22, y: slot.y - HERO_GROUND });
@@ -65,7 +70,7 @@ function ActorSprite({ actor, s }: { actor: Actor; s: number }) {
   const { dx, dy } = actor;
   const transform = useDerivedValue(
     () => [{ translateX: Math.round(frame.x + (dx ? dx.value : 0)) * s }, { translateY: Math.round(frame.y + (dy ? dy.value : 0)) * s }],
-    [frame.x, frame.y, dx, dy, s],
+    webDeps([frame.x, frame.y, dx, dy, s]),
   );
   return (
     <Group transform={transform}>
@@ -126,7 +131,7 @@ function GlyphThread({ glyphs, k, s }: { glyphs: GlyphFx; k: number; s: number }
 
 function FxSprite({ item, s }: { item: FxItem; s: number }) {
   const { dx, dy, x, y } = item;
-  const t = useDerivedValue(() => [{ translateX: Math.round(x + (dx ? dx.value : 0)) * s }, { translateY: Math.round(y + (dy ? dy.value : 0)) * s }], [x, y, dx, dy, s]);
+  const t = useDerivedValue(() => [{ translateX: Math.round(x + (dx ? dx.value : 0)) * s }, { translateY: Math.round(y + (dy ? dy.value : 0)) * s }], webDeps([x, y, dx, dy, s]));
   return (
     <Group transform={t}>
       <Picture picture={item.pic} />
