@@ -1,7 +1,7 @@
-import { Picture } from '@shopify/react-native-skia';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { FilterMode, Image, MipmapMode } from '@shopify/react-native-skia';
+import { memo, useEffect, useState } from 'react';
 
-import { windPictures } from './art';
+import { windImages, type Baked } from './art';
 import { LEANS, WIND_BANDS, WIND_TICK, windLean, type Lean } from './ground';
 
 const STILL: Lean[] = new Array(WIND_BANDS).fill(0);
@@ -10,7 +10,7 @@ const STILL: Lean[] = new Array(WIND_BANDS).fill(0);
 // picture for its current lean, stepped on the 12 fps sprite tick; only bands that change redraw.
 // With active off (in battle, in the arena, or with Reduce Motion on) everything stands upright.
 export const WindLayer = memo(function WindLayer({ s, active }: { s: number; active: boolean }) {
-  const pics = useMemo(() => windPictures(s), [s]);
+  const pics = windImages();
   const [leans, setLeans] = useState<Lean[]>(STILL);
 
   useEffect(() => {
@@ -32,9 +32,17 @@ export const WindLayer = memo(function WindLayer({ s, active }: { s: number; act
 
   return (
     <>
-      {pics.map((frames, b) => (
-        <Picture key={b} picture={frames[LEANS.indexOf(leans[b])]} />
-      ))}
+      {pics.map((frames, b) => {
+        const f = frames[LEANS.indexOf(leans[b])];
+        return f ? <BakedImage key={b} baked={f} s={s} /> : null;
+      })}
     </>
   );
 });
+
+const NEAREST = { filter: FilterMode.Nearest, mipmap: MipmapMode.None };
+
+// A baked ground layer, scaled up to the map's pixel size without smoothing.
+export function BakedImage({ baked, s }: { baked: Baked; s: number }) {
+  return <Image image={baked.image} x={baked.x * s} y={baked.y * s} width={baked.w * s} height={baked.h * s} fit="fill" sampling={NEAREST} />;
+}

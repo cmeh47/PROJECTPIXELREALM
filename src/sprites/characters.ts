@@ -24,6 +24,12 @@ export type HeroPose = {
   spark?: number;
   clang?: boolean;
   dust?: boolean;
+  // Mage casting: a dotted halo of light around the staff's orb (a palette key: G mana, Y frost,
+  // B spark, M mend) and the one-tick flare that stands in for a smear when a spell is released.
+  glow?: string;
+  flare?: boolean;
+  // A see-through wash of one palette color over the body (Mend's mint glow on the healed ally).
+  wash?: string;
   look?: number;
   hero?: HeroLook;
 };
@@ -50,9 +56,23 @@ export function heroLayers(p: HeroPose): Layer[] {
     layers.push({ grid: f, alpha: alpha ?? 1 });
   }
   layers.push({ grid: body.g, alpha: 1 });
+  if (p.wash) {
+    const w = heroBody({ ...p, flash: false }).g;
+    w.tint(PAL[p.wash] ?? PAL.M);
+    layers.push({ grid: w, alpha: 0.55 });
+  }
   const fx = new Grid(HERO_W, HERO_H);
   if (p.spark) star(fx, body.tip.x, body.tip.y, p.spark, PAL.b, PAL.H);
   if (p.clang) star(fx, body.hand.x + 3, body.hand.y - 6, 4, PAL.Y, PAL.H);
+  if (p.glow) {
+    // Every other dot of a ring 4 px out, so the orb reads as gathering light, not a solid ball.
+    const col = PAL[p.glow] ?? PAL.G;
+    for (let k = 0; k < 24; k += 2) {
+      const a = (k / 24) * Math.PI * 2;
+      fx.set(body.tip.x + Math.cos(a) * 4.5, body.tip.y + Math.sin(a) * 4.5, col);
+    }
+  }
+  if (p.flare) star(fx, body.tip.x + 1, body.tip.y, 4, PAL.B, PAL.H);
   if (p.dust) {
     const { x, y } = body.feet;
     fx.set(x - 6, y - 1, PAL.C);

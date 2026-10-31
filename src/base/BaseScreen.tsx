@@ -11,7 +11,7 @@ import { colors, fonts } from '../theme';
 import { Chip, Framed, haptic, PixelButton, styles as t } from '../ui/pixel';
 import {
   bubblePicture,
-  groundPicture,
+  groundImage,
   heartPicture,
   heroOwPicture,
   housePicture,
@@ -33,7 +33,7 @@ import type { Hero } from '../net/useHero';
 import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
 import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
 import { BUTCHER_SCRIPT, BUTCHER_SPEAKER, CRITTER_SCRIPT, critterSpeaker } from './npcs';
-import { WindLayer } from './WindLayer';
+import { BakedImage, WindLayer } from './WindLayer';
 
 // ---------- Tuning ----------
 const HERO_SPEED = 64; // art px per second
@@ -128,6 +128,9 @@ export function BaseScreen({ player }: { player: Hero }) {
   const [arena, setArena] = useState(false);
   const reduceMotion = useReducedMotion();
   const [battle, setBattle] = useState<{ foe: Foe; key: number } | null>(null);
+  // While a battle or the arena covers the base, the base's game loop rests.
+  const coveredRef = useRef(false);
+  coveredRef.current = phase === 'battle' || arena;
   const [banner, setBanner] = useState<string | null>(null);
   const [talk, setTalk] = useState<Talk | null>(null);
   const [stage, setStageState] = useState<ButcherStage>('hostile');
@@ -401,7 +404,19 @@ export function BaseScreen({ player }: { player: Hero }) {
     let raf = 0;
     let last = performance.now();
     let repaint = false;
+    // Shared values are sent to the UI thread only when they change, so a still scene doesn't redraw.
+    const sent = new Map<SharedValue<number>, number>();
+    const put = (sv: SharedValue<number>, v: number) => {
+      if (sent.get(sv) === v) return;
+      sent.set(sv, v);
+      sv.value = v;
+    };
     const tick = (now: number) => {
+      if (coveredRef.current) {
+        last = now;
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       const dt = Math.min(50, now - last);
       last = now;
       repaint = false;
@@ -572,18 +587,18 @@ export function BaseScreen({ player }: { player: Hero }) {
       }
 
       // Push positions to the UI thread; the camera stays locked on the hero, clamped to the map.
-      beat.value = Math.floor(now / 400) % 2;
-      npcBeat.value = Math.floor(now / 700) % 2;
-      hammerBeat.value = Math.floor(now / 250) % 2;
-      heroX.value = h.x;
-      heroY.value = h.y;
+      put(beat, Math.floor(now / 400) % 2);
+      put(npcBeat, Math.floor(now / 700) % 2);
+      put(hammerBeat, Math.floor(now / 250) % 2);
+      put(heroX, h.x);
+      put(heroY, h.y);
       toads.current.forEach((td, i) => {
-        tx[i].value = td.x;
-        ty[i].value = td.y;
+        put(tx[i], td.x);
+        put(ty[i], td.y);
       });
       const v = viewRef.current;
-      camX.value = Math.round(Math.max(0, Math.min(MAP_W - v.w, h.x - v.w / 2)));
-      camY.value = Math.round(Math.max(0, Math.min(MAP_H - v.h, h.y - 10 - v.h / 2)));
+      put(camX, Math.round(Math.max(0, Math.min(MAP_W - v.w, h.x - v.w / 2))));
+      put(camY, Math.round(Math.max(0, Math.min(MAP_H - v.h, h.y - 10 - v.h / 2))));
 
       if (repaint) force();
       raf = requestAnimationFrame(tick);
@@ -728,7 +743,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   });
   items.sort((a, b) => a.y - b.y);
 
-  const ground = useMemo(() => groundPicture(s), [s]);
+  const ground = groundImage();
   const worldT = useDerivedValue(() => [{ translateX: -camX.value * s }, { translateY: -camY.value * s }]);
   const af = alertFoe.current;
   const alert = af == null ? null : af.kind === 'shroomie' ? { x: tx[af.id], y: ty[af.id], top: 16 } : { x: npcX, y: npcY, top: 22 };
@@ -753,7 +768,7 @@ export function BaseScreen({ player }: { player: Hero }) {
           {box ? (
             <Canvas style={{ width: box.w, height: box.h }}>
               <Group transform={worldT}>
-                <Picture picture={ground} />
+                {ground ? <BakedImage baked={ground} s={s} /> : null}
                 <WindLayer s={s} active={phase === 'roam' && !arena && !reduceMotion} />
                 {items.map((it) => it.node)}
                 {chop.current ? <Swipe dir={h.dir} hx={h.x} hy={h.y} s={s} /> : null}
