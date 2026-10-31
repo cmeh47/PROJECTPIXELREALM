@@ -1,10 +1,45 @@
-import { createPicture, Skia, type SkPicture } from '@shopify/react-native-skia';
+import { AlphaType, ColorType, createPicture, FilterMode, MipmapMode, Skia, type SkImage, type SkPicture } from '@shopify/react-native-skia';
 
 import { colors } from '../theme';
 import { foeLayers, heroLayers, type FoePose, type HeroPose, type Layer } from './characters';
 import type { Grid } from './pixel';
 
-// Every art pixel becomes an s x s square, so sprites stay crisp at whole-number scales.
+// '#RRGGBB' to bytes, remembered per colour.
+const rgbCache = new Map<string, [number, number, number]>();
+function rgb(c: string): [number, number, number] {
+  let v = rgbCache.get(c);
+  if (!v) {
+    if (/^#[0-9a-f]{6}$/i.test(c)) v = [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+    else {
+      const f = Skia.Color(c);
+      v = [Math.round(f[0] * 255), Math.round(f[1] * 255), Math.round(f[2] * 255)];
+    }
+    rgbCache.set(c, v);
+  }
+  return v;
+}
+
+// A grid as a tiny image, one pixel per art pixel.
+function gridImage(grid: Grid): SkImage | null {
+  const bytes = new Uint8Array(grid.w * grid.h * 4);
+  for (let i = 0; i < grid.c.length; i++) {
+    const c = grid.c[i];
+    if (!c) continue;
+    const [r, g, b] = rgb(c);
+    bytes[i * 4] = r;
+    bytes[i * 4 + 1] = g;
+    bytes[i * 4 + 2] = b;
+    bytes[i * 4 + 3] = 255;
+  }
+  return Skia.Image.MakeImage(
+    { width: grid.w, height: grid.h, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul },
+    Skia.Data.fromBytes(bytes),
+    grid.w * 4,
+  );
+}
+
+// Each layer is baked into a tiny image and drawn s times larger without smoothing, so sprites stay
+// crisp at whole-number scales and cost one draw each instead of one square per pixel.
 function drawLayers(layers: Layer[], s: number) {
   const w = layers[0].grid.w;
   const h = layers[0].grid.h;
@@ -12,15 +47,11 @@ function drawLayers(layers: Layer[], s: number) {
     (canvas) => {
       const paint = Skia.Paint();
       for (const { grid, alpha } of layers) {
-        for (let y = 0; y < grid.h; y++) {
-          for (let x = 0; x < grid.w; x++) {
-            const c = grid.c[y * grid.w + x];
-            if (!c) continue;
-            paint.setColor(Skia.Color(c));
-            paint.setAlphaf(alpha);
-            canvas.drawRect(Skia.XYWHRect(x * s, y * s, s, s), paint);
-          }
-        }
+        if (!grid.c.some(Boolean)) continue;
+        const img = gridImage(grid);
+        if (!img) continue;
+        paint.setAlphaf(alpha);
+        canvas.drawImageRectOptions(img, Skia.XYWHRect(0, 0, grid.w, grid.h), Skia.XYWHRect(0, 0, grid.w * s, grid.h * s), FilterMode.Nearest, MipmapMode.None, paint);
       }
     },
     { width: w * s, height: h * s },
@@ -46,8 +77,10 @@ export function foePicture(pose: FoePose, s: number) {
   return cached(`f${s}${JSON.stringify(pose)}`, () => drawLayers(foeLayers(pose), s));
 }
 
-export function gridPicture(key: string, grid: Grid, s: number) {
-  return cached(`g${key}${s}`, () => drawLayers([{ grid, alpha: 1 }], s));
+// Pass a builder rather than a grid where the grid is costly to make: it only runs on a cache miss,
+// so a screen can ask for its sprites on every render.
+export function gridPicture(key: string, grid: Grid | (() => Grid), s: number) {
+  return cached(`g${key}${s}`, () => drawLayers([{ grid: typeof grid === 'function' ? grid() : grid, alpha: 1 }], s));
 }
 
 // For one-off effect frames (a lance or a bolt drawn between two live points): not cached.
