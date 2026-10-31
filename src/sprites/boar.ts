@@ -21,124 +21,149 @@ export type BoarPose = {
   steam?: boolean; // a snort from the snout
 };
 
-// Body, 26 x 13, shoulders high at the front (left), a dark mane along the back.
-const BODY = [
-  '....W.W.W.W.W.W...........',
-  '...WWWWWWWWWWWWWW.........',
-  '..WWWWWWWWWWWWWWWWW.......',
-  '..wwwwwwwwwwwwwwwwwWWW....',
-  '.wwwwwwwwwwwwwwwwwwwwwWW..',
-  '.wwwwwwwwwwwwwwwwwwwwwwwW.',
-  '.wwwwwwwwwwwwwwwwwwwwwwwW.',
-  '.wwwwwwwwwwwwwwwwwwwwwwwW.',
-  '.wwwwwwwwwwwwwwwwwwwwwwwW.',
-  '.Wwwwwwwwwwwwwwwwwwwwwwww.',
-  '..WWwwwwwwwwwwwwwwwwwwWW..',
-  '...WWWWWWwwwwwwwwwwWWW....',
-  '.....WWWWWWWWWWWWWW.......',
-];
+// The boar is drawn as one silhouette, not a head stuck on a body, so the skull runs straight into
+// the shoulder hump with no dip between them: a huge wedge of a head, a high bristled hump, and a
+// back that falls away to a small rump. Points are (x, y) at full size, facing left.
+const TOP: [number, number][] = [[0, 12], [1, 9], [3, 7], [6, 5], [9, 3], [12, 1], [15, 0], [19, 0], [22, 1], [25, 3], [28, 6], [31, 8], [33, 10], [34, 11]];
+const BOTTOM: [number, number][] = [[0, 19], [3, 20], [7, 20], [11, 20], [15, 19], [19, 18], [23, 16], [27, 14], [31, 13], [34, 12]];
+const HEAD_END = 14; // columns left of this belong to the head and move with headDy
 
-// Head, 13 x 12, snout to the left, one tusk curling up.
-const HEAD = [
-  '........WW......',
-  '.......WwW......',
-  '......WwwwW.....',
-  '....wwwwwwwwww..',
-  '...wwwwwwwwwwww.',
-  '..wwwKKwwwwwwww.',
-  '.wwwwKHwwwwwwww.',
-  'wwwwwwwwwwwwwww.',
-  'SSSwwwwwwwwwwww.',
-  'SKSSHwwwwwwwwwn.',
-  'SSSSHHwwwwwwnn..',
-  '.cccHHwwwwnnn...',
-  '..cc..nnnnn.....',
-];
+function edge(pts: [number, number][], x: number) {
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1];
+    const [x1, y1] = pts[i];
+    if (x <= x1) return y0 + ((y1 - y0) * (x - x0)) / Math.max(1, x1 - x0);
+  }
+  return pts[pts.length - 1][1];
+}
 
-// The same head with a shut, crossed eye for a knockout.
-const HEAD_KO = HEAD.map((r, j) => (j === 4 ? '...wKwKwwwwwww.' : j === 5 ? '..wwwKwwwwwwww.' : j === 6 ? '.wwwKwKwwwwwww.' : r));
+// Draws the body (no legs) with its top-left at (ox, oy). k scales it (1 in battle, 0.5 on the map);
+// drop lowers the head, blending smoothly into the hump; ko shuts the eye into a cross.
+function boarBody(g: Grid, ox: number, oy: number, k: number, drop: number, ko = false) {
+  const W = Math.round(34 * k);
+  const sx = (x: number) => x / k; // map pixel column back to full-size units
+  const headShift = (fx: number) => (fx < HEAD_END ? (drop * (HEAD_END - fx)) / HEAD_END : 0);
+  const top = (x: number) => Math.round((edge(TOP, sx(x)) + headShift(sx(x))) * k);
+  const bot = (x: number) => Math.round((edge(BOTTOM, sx(x)) + headShift(sx(x))) * k);
+  for (let x = 0; x <= W; x++) {
+    const t = top(x);
+    const b = bot(x);
+    for (let y = t; y <= b; y++) {
+      // Dark mane along the top of the hump, a shaded belly, a tan jowl under the head.
+      const fx = sx(x);
+      let c = PAL.w;
+      if (y - t < (fx > 8 && fx < 30 ? 2 : 1) * Math.max(1, Math.round(k * 2)) - (k < 1 ? 1 : 0)) c = PAL.W;
+      if (y === b) c = PAL.W;
+      g.set(ox + x, oy + y, c);
+    }
+    // Bristles: spikes along the mane, longest over the hump.
+    const fx = sx(x);
+    if (fx > 9 && fx < 28 && x % 2 === 0) {
+      g.set(ox + x, oy + top(x) - 1, PAL.W);
+      if (k === 1 && fx > 12 && fx < 23) g.set(ox + x, oy + top(x) - 2, PAL.W);
+    }
+  }
+  const s = (fx: number) => Math.round(headShift(fx) * k);
+  const P = (fx: number, fy: number, c: string) => g.set(ox + Math.round(fx * k), oy + Math.round(fy * k) + s(fx), c);
+  // Snout: a broad peach disc on the front of the wedge, two nostrils, a shaded underside.
+  for (let fy = 11; fy <= 19; fy++) for (let fx = -2; fx <= 3; fx++) if (!(fx === 3 && (fy === 11 || fy === 19)) && !(fx === -2 && (fy <= 11 || fy >= 18))) P(fx, fy, fy >= 18 ? PAL.c : fx === -2 ? PAL.c : PAL.S);
+  P(0, 13, PAL.K);
+  P(0, 16, PAL.K);
+  // Mouth line, then a big tusk curling up out of it.
+  for (let fx = 3; fx <= 8; fx++) P(fx, 18, PAL.W);
+  for (const [fx, fy] of [[6, 19], [6, 18], [6, 17], [5, 16], [5, 15], [4, 14]] as [number, number][]) P(fx, fy, PAL.H);
+  if (k === 1) for (const [fx, fy] of [[7, 19], [7, 18], [6, 16]] as [number, number][]) P(fx, fy, PAL.H);
+  // Warts: lumps on the cheek and over the snout, because it's an ugly brute.
+  for (const [fx, fy] of [[4, 9], [10, 12], [11, 13], [8, 14]] as [number, number][]) P(fx, fy, PAL.W);
+  // A small mean eye under a heavy brow.
+  if (ko) {
+    for (const [fx, fy] of [[7, 7], [9, 7], [8, 8], [7, 9], [9, 9]] as [number, number][]) P(fx, fy, PAL.K);
+  } else {
+    for (let fx = 6; fx <= 10; fx++) P(fx, 7, PAL.W);
+    P(8, 8, PAL.K);
+    P(9, 8, PAL.K);
+    if (k === 1) P(8, 9, PAL.K);
+  }
+  // Ear: a ragged triangle laid back on top of the head, at the foot of the hump.
+  for (const [fx, fy, c] of [[10, 2, PAL.W], [11, 1, PAL.W], [11, 0, PAL.W], [12, -1, PAL.W], [12, -2, PAL.W], [13, -3, PAL.W], [12, 0, PAL.S], [12, 1, PAL.S], [13, -1, PAL.W], [13, 0, PAL.W], [13, 1, PAL.W], [14, -2, PAL.W], [14, 0, PAL.W]] as [number, number, string][]) P(fx, fy, c);
+  // Tail: a thin flick off the rump.
+  g.set(ox + W + 1, oy + Math.round(9 * k), PAL.W);
+  g.set(ox + W + 2, oy + Math.round(8 * k), PAL.W);
+  if (k === 1) g.set(ox + W + 2, oy + 7, PAL.W);
+}
 
-function legs(g: Grid, bx: number, by: number, kind: BoarPose['legs']) {
-  // Four stubby legs, 3 px wide, with ink hooves. Front pair near bx + 2 and bx + 7, back pair near
-  // bx + 16 and bx + 20. by is the ground row.
-  const L = (x: number, top: number, bottom: number, dx = 0) => {
+// Legs: thick front legs under the chest, thin short back legs under the small rump.
+function legs(g: Grid, ox: number, gy: number, kind: BoarPose['legs']) {
+  const L = (x: number, top: number, bottom: number, w: number, dx = 0) => {
     for (let y = top; y <= bottom; y++) {
-      const t = (y - top) / Math.max(1, bottom - top);
-      const ox = Math.round(dx * t);
-      for (let i = 0; i < 3; i++) g.set(x + i + ox, y, y >= bottom - 1 ? PAL.K : PAL.W);
+      const ofs = Math.round((dx * (y - top)) / Math.max(1, bottom - top));
+      for (let i = 0; i < w; i++) g.set(x + i + ofs, y, y >= bottom - 1 ? PAL.K : PAL.W);
     }
   };
-  const top = by - 5;
+  const fTop = gy - 6; // under the chest
+  const bTop = gy - 11; // the rump sits high on thin legs
   switch (kind) {
-    case 'paw': // front hoof scraping back, the other three planted
-      L(bx + 2, top, by - 2, 3);
-      L(bx + 7, top, by);
-      L(bx + 16, top, by);
-      L(bx + 20, top, by);
+    case 'paw':
+      L(ox + 8, fTop, gy - 2, 4, 3);
+      L(ox + 14, fTop, gy, 4);
+      L(ox + 26, bTop, gy, 3);
+      L(ox + 30, bTop, gy, 3);
       break;
-    case 'run1': // gathered: legs tucked under
-      L(bx + 4, top, by - 1, 2);
-      L(bx + 8, top, by - 1, 1);
-      L(bx + 14, top, by - 1, -1);
-      L(bx + 18, top, by - 1, -2);
+    case 'run1':
+      L(ox + 10, fTop, gy - 1, 4, 2);
+      L(ox + 15, fTop, gy - 1, 4, 1);
+      L(ox + 25, bTop, gy - 1, 3, -1);
+      L(ox + 28, bTop, gy - 1, 3, -2);
       break;
-    case 'run2': // stretched: front legs reach, back legs push
-      L(bx + 1, top, by - 1, -4);
-      L(bx + 5, top, by - 1, -3);
-      L(bx + 18, top, by - 1, 3);
-      L(bx + 21, top, by - 1, 4);
+    case 'run2':
+      L(ox + 7, fTop, gy - 1, 4, -4);
+      L(ox + 12, fTop, gy - 1, 4, -3);
+      L(ox + 28, bTop, gy - 1, 3, 3);
+      L(ox + 31, bTop, gy - 1, 3, 4);
       break;
-    case 'brace': // skidding: front legs locked forward
-      L(bx + 2, top, by, -3);
-      L(bx + 6, top, by, -2);
-      L(bx + 16, top, by);
-      L(bx + 20, top, by);
+    case 'brace':
+      L(ox + 8, fTop, gy, 4, -3);
+      L(ox + 13, fTop, gy, 4, -2);
+      L(ox + 26, bTop, gy, 3);
+      L(ox + 30, bTop, gy, 3);
       break;
     default:
-      L(bx + 3, top, by);
-      L(bx + 8, top, by);
-      L(bx + 16, top, by);
-      L(bx + 20, top, by);
+      L(ox + 8, fTop, gy, 4);
+      L(ox + 14, fTop, gy, 4);
+      L(ox + 26, bTop, gy, 3);
+      L(ox + 30, bTop, gy, 3);
   }
 }
 
 export function boarLayers(p: BoarPose): Layer[] {
   const g = new Grid(BOAR_W, BOAR_H);
   const fx = new Grid(BOAR_W, BOAR_H);
-  const ox = 26 + (p.x ?? 0);
+  const ox = 14 + (p.x ?? 0);
   const gy = BOAR_GROUND - (p.lift ?? 0);
+  const drop = p.headDy ?? 0;
+  // The body's chest bottom (row 20 of the silhouette) sits on the legs.
+  const oy = gy - 5 - 20;
+  // Head reference point for effects: the snout tip and the tusk.
+  const snout = { x: ox, y: oy + 13 + drop };
+  const tusk = { x: ox + 5, y: oy + 15 + Math.round(drop * 0.6) };
 
   if (p.ko) {
-    // On its side: body rolled so the belly faces us, legs sticking out, head down on the ground.
-    const by = BOAR_GROUND - 11;
-    const rolled = [...BODY].reverse();
-    g.stamp(rolled, ox, by);
-    for (const lx of [ox + 6, ox + 11, ox + 17, ox + 21]) for (let k = 0; k < 4; k++) {
-      g.set(lx + k, by - 1 - k, k >= 3 ? PAL.K : PAL.W);
-      g.set(lx + k + 1, by - 1 - k, k >= 3 ? PAL.K : PAL.W);
-    }
-    g.stamp(HEAD_KO, ox - 13, BOAR_GROUND - 12);
+    // Knocked out: slumped flat on its belly, legs folded under, head dropped, eye crossed.
+    boarBody(g, ox, BOAR_GROUND - 23, 1, 3, true);
+    if (p.flash) g.tint(PAL.H);
     g.outline(PAL.K);
     if (p.stars != null) {
-      const pos: [number, number][] = [[-4, -3], [3, -6], [10, -4], [5, -1]];
+      const pos: [number, number][] = [[0, -3], [6, -6], [12, -4], [8, -1]];
       for (let i = 0; i < 3; i++) {
         const q = pos[(i + p.stars) % 4];
-        star(fx, ox - 4 + q[0], BOAR_GROUND - 16 + q[1], 1, PAL.B, PAL.b);
+        star(fx, ox + 4 + q[0], BOAR_GROUND - 18 + q[1], 1, PAL.B, PAL.b);
       }
     }
     return [{ grid: g, alpha: 1 }, { grid: fx, alpha: 1 }];
   }
 
-  const by = gy - 5 - BODY.length + 1; // body top, so its belly sits on top of the legs
   legs(g, ox, gy, p.legs ?? 'stand');
-  g.stamp(BODY, ox, by);
-  // Tail: a little curl off the rump.
-  g.set(ox + 26, by + 4, PAL.W);
-  g.set(ox + 27, by + 3, PAL.W);
-  g.set(ox + 27, by + 2, PAL.W);
-  const hx = ox - 12 + (p.headDx ?? 0);
-  const hy = by + 1 + (p.headDy ?? 0);
-  g.stamp(HEAD, hx, hy);
+  boarBody(g, ox + (p.headDx ?? 0) * 0, oy, 1, drop);
   if (p.flash) g.tint(PAL.H);
   g.outline(PAL.K);
 
@@ -146,7 +171,7 @@ export function boarLayers(p: BoarPose): Layer[] {
   if (p.dust) {
     const d = new Grid(BOAR_W, BOAR_H);
     for (let i = 0; i < p.dust; i++) {
-      const cx = ox + 26 + i * 7;
+      const cx = ox + 36 + i * 7;
       const cy = BOAR_GROUND - 2 - i;
       const r = 2 + i;
       for (let j = -r; j <= r; j++) for (let k = -r; k <= r; k++) if (j * j + k * k <= r * r) d.set(cx + k, cy + j, i === 0 ? PAL.C : PAL.o);
@@ -154,53 +179,51 @@ export function boarLayers(p: BoarPose): Layer[] {
     layers.push({ grid: d, alpha: 0.9 });
   }
   layers.push({ grid: g, alpha: 1 });
-  if (p.glint) star(fx, hx + 4, hy + 9, 3, PAL.B, PAL.H);
-  if (p.steam) {
-    for (const [sx, sy] of [[-2, 7], [-4, 6], [-5, 8], [-6, 5]]) fx.set(hx + sx, hy + sy, PAL.o);
-  }
+  if (p.glint) star(fx, tusk.x, tusk.y - 1, 3, PAL.B, PAL.H);
+  if (p.steam) for (const [sx, sy] of [[-2, 0], [-4, -1], [-5, 1], [-6, -2]]) fx.set(snout.x + sx, snout.y + sy, PAL.o);
   if (p.stars != null) {
-    const pos: [number, number][] = [[-2, -3], [4, -6], [10, -4], [6, -1]];
+    const pos: [number, number][] = [[0, -3], [6, -6], [12, -4], [8, -1]];
     for (let i = 0; i < 3; i++) {
       const q = pos[(i + p.stars) % 4];
-      star(fx, hx + q[0], hy + q[1], 1, PAL.B, PAL.b);
+      star(fx, ox + 4 + q[0], oy + 2 + drop + q[1], 1, PAL.B, PAL.b);
     }
   }
   layers.push({ grid: fx, alpha: 1 });
   return layers;
 }
 
-// The boar's head for the battle log.
+// The boar's head for the battle log: the front of the silhouette, cropped.
 export function boarPortrait(): Grid {
+  const t = new Grid(40, 26);
+  boarBody(t, 1, 3, 1, 0);
   const g = new Grid(20, 20);
-  g.stamp(HEAD, 2, 4);
+  for (let y = 0; y < 20; y++) for (let x = 0; x < 19; x++) {
+    const c = t.get(x + 1, y + 2);
+    if (c) g.set(x + 1, y, c);
+  }
   g.outline(PAL.K);
   return g;
 }
 
-// Overworld boar on the map, 20 x 14 frame, side view like the Shroomies, facing left unless flipped.
-// frame: 0 standing, 1 and 2 trotting, 3 head down (about to charge).
-export const BOAR_OW_W = 20;
-export const BOAR_OW_H = 14;
-
-const OW_BODY = ['...W.W.W.W......', '..WWWWWWWWWW....', '.WwwwwwwwwwwWW..', 'wwwwwwwwwwwwwwW.', 'wwwwwwwwwwwwwwwW', 'nwwwwwwwwwwwwwWW', '.nnnnnnwwwwwWWW.'];
-const OW_HEAD = ['..WW..', '.wwwww', 'wKwwww', 'SSwwww', 'SKSHww', '.ccH..'];
+// Overworld boar on the map, 22 x 15 frame, the same silhouette at half size, facing left unless
+// flipped. frame: 0 standing, 1 and 2 trotting, 3 head down (about to charge).
+export const BOAR_OW_W = 22;
+export const BOAR_OW_H = 15;
 
 export function boarOverworld(frame: number, flip = false): Grid {
   const g = new Grid(BOAR_OW_W, BOAR_OW_H);
-  const base = 12;
+  const base = 13;
   const bob = frame === 2 ? -1 : 0;
-  const leg = (x: number, dx: number) => {
-    g.set(x, base - 1, PAL.W);
-    g.set(x + dx, base, PAL.K);
-    g.set(x + 1 + dx, base, PAL.K);
-    g.set(x + 1, base - 1, PAL.W);
+  const leg = (x: number, w: number, dx: number, top: number) => {
+    for (let i = 0; i < w; i++) {
+      for (let y = top; y < base; y++) g.set(x + i, y + bob, PAL.W);
+      g.set(x + i + dx, base, PAL.K);
+    }
   };
-  if (frame === 1) [5, 8, 14, 17].forEach((x, i) => leg(x, i % 2 ? 1 : -1));
-  else if (frame === 2) [4, 9, 13, 18].forEach((x, i) => leg(x, i % 2 ? -1 : 1));
-  else [5, 8, 14, 17].forEach((x) => leg(x, 0));
-  g.stamp(OW_BODY, 4, base - 1 - OW_BODY.length + bob);
-  g.stamp(OW_HEAD, 0, base - 9 + bob + (frame === 3 ? 2 : 0));
-  g.set(19, 4, PAL.W);
+  const xs = frame === 1 ? [4, 7, 14, 16] : frame === 2 ? [3, 8, 13, 17] : [4, 7, 14, 16];
+  const dx = frame === 1 ? [-1, 1, -1, 1] : frame === 2 ? [1, -1, 1, -1] : [0, 0, 0, 0];
+  xs.forEach((x, i) => leg(x, i < 2 ? 2 : 1, dx[i], i < 2 ? base - 2 : base - 5));
+  boarBody(g, 1, base - 11 + bob, 0.5, frame === 3 ? 4 : 0);
   if (flip) {
     const c = g.c.slice();
     for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) g.c[y * g.w + x] = c[y * g.w + (g.w - 1 - x)];
