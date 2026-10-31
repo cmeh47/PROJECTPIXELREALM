@@ -5,7 +5,9 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { foePortrait, HERO_LOOKS, heroPortrait, type FoePose, type HeroPose } from '../sprites/characters';
+import { foePortrait, type FoePose, type HeroPose } from '../sprites/characters';
+import { heroFace, PARTY_LOOKS, type HeroLook } from '../sprites/hero';
+import type { Hero } from '../net/useHero';
 import { gridPicture } from '../sprites/render';
 import { colors } from '../theme';
 import { Chip, Framed, haptic, PixelButton, PixelIcon, SegBar, styles as t } from '../ui/pixel';
@@ -45,7 +47,7 @@ type Phase = 'menu' | 'moves' | 'tame' | 'flee' | 'acting' | 'won' | 'lost' | 't
 
 // Battle state lives in a ref and is mutated by the async combat sequences; force() repaints.
 // pose === null means "breathe with the shared idle beat".
-type HeroState = { name: string; look: number; hp: number; pose: HeroPose | null; z?: number };
+type HeroState = { name: string; look: HeroLook; hp: number; pose: HeroPose | null; z?: number };
 type FoeState = { name: string; look: number; kind?: FoePose['kind']; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
 type Game = { heroes: HeroState[]; foes: FoeState[] };
 
@@ -87,8 +89,8 @@ function foeCopy(kind: FoePose['kind']) {
 }
 export type BattleResult = 'won' | 'lost' | 'tamed' | 'fled';
 
-function newGame(full: boolean, encounter?: Encounter): Game {
-  const heroes = (full ? [0, 1, 2, 3] : [0]).map((i) => ({ name: HERO_NAMES[i], look: i, hp: HERO_MAX_HP, pose: null }));
+function newGame(full: boolean, encounter?: Encounter, you?: Hero): Game {
+  const heroes = (full ? [0, 1, 2, 3] : [0]).map((i) => ({ name: HERO_NAMES[i], look: i === 0 && you ? you.look : PARTY_LOOKS[i], hp: HERO_MAX_HP, pose: null }));
   const foes = (full ? [0, 1, 2] : [0]).map((j) => ({ name: FOE_NAMES[j], look: j, hp: FOE_MAX_HP, brk: 0, broken: false, out: null, pose: null }));
   if (encounter && !full) Object.assign(foes[0], encounter);
   return { heroes, foes };
@@ -99,7 +101,7 @@ const standing = (g: Game) => g.heroes.map((h, i) => (h.hp > 0 ? i : -1)).filter
 
 // encounter: a fight started on the base map against one Shroomie or the butcher; onDone hands the result back.
 // Without an encounter it is the practice arena, with the SOLO / PARTY 4 toggle and onExit.
-export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encounter; onDone?: (r: BattleResult) => void; onExit?: () => void } = {}) {
+export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: Encounter; you?: Hero; onDone?: (r: BattleResult) => void; onExit?: () => void } = {}) {
   const insets = useSafeAreaInsets();
 
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
@@ -108,7 +110,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   const fieldRef = useRef<Field | null>(field);
   fieldRef.current = field;
 
-  const game = useRef<Game>(newGame(false, encounter));
+  const game = useRef<Game>(newGame(false, encounter, you));
   const [, force] = useReducer((x: number) => x + 1, 0);
 
   const [phase, setPhase] = useState<Phase>('menu');
@@ -766,7 +768,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         v.value = 0;
       });
       rune.visible.value = 0;
-      game.current = newGame(nextFull, encounter);
+      game.current = newGame(nextFull, encounter, you);
       tamedRef.current = 0;
       setTarget(0);
       setFocus(null);
@@ -801,7 +803,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
       const b = (beat + i) % 4;
       const idlePose: HeroPose =
         h.hp <= 0 ? HERO.down : cheer ? HERO.cheer[b % 2][1] : b % 2 === 0 ? HERO.ready : { ...HERO.ready, crouch: true, hy: 5 };
-      actors.push({ kind: 'hero', key: `h${i}`, slot: field.heroes[i], z: h.z, pose: { ...(h.pose ?? idlePose), look: h.look }, dx: hdx[i], dy: hdy[i] });
+      actors.push({ kind: 'hero', key: `h${i}`, slot: field.heroes[i], z: h.z, pose: { ...(h.pose ?? idlePose), hero: h.look }, dx: hdx[i], dy: hdy[i] });
     });
     g0.foes.forEach((f, j) => {
       const idlePose: FoePose =
@@ -946,7 +948,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
           <View style={[st.dock, { paddingBottom: insets.bottom + 10 }]}>
             <View style={st.statusRow}>
               <View style={st.heroStat}>
-                <HeadSprite look={0} />
+                <HeadSprite look={g0.heroes[0].look} />
                 <View style={{ gap: 2 }}>
                   <Text style={t.stat}>YOU · HP {g0.heroes[0].hp}</Text>
                   <View style={{ width: 92, flexDirection: 'row' }}>
@@ -1191,12 +1193,12 @@ function TargetMarker({ field, slot, beat }: { field: Field; slot: { x: number; 
   );
 }
 
-function HeadSprite({ look, small }: { look: number; small?: boolean }) {
-  const pic = useMemo(() => gridPicture(`herohead${look}`, heroPortrait(HERO_LOOKS[look]), 2), [look]);
-  const size = small ? 26 : 30;
+function HeadSprite({ look, small }: { look: HeroLook; small?: boolean }) {
+  const key = `${look.cls}-${look.sex}-${look.skin}-${look.hair}-${look.hairColor}`;
+  const pic = useMemo(() => gridPicture(`heroface-${key}`, heroFace(look), 2), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <View style={[st.portrait, { width: size, height: size }]}>
-      <Canvas style={{ width: 24, height: 24 }}>
+    <View style={[st.portrait, { width: small ? 34 : 38, height: small ? 28 : 32 }]}>
+      <Canvas style={{ width: 32, height: 26 }}>
         <Picture picture={pic} />
       </Canvas>
     </View>

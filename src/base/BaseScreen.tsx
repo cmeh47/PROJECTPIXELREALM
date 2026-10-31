@@ -29,6 +29,8 @@ import {
 import { BUTCHER, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
 import { QuestLog } from './QuestLog';
+import type { Hero } from '../net/useHero';
+import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
 import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
 import { BUTCHER_SCRIPT, BUTCHER_SPEAKER, CRITTER_SCRIPT, critterSpeaker } from './npcs';
 import { WindLayer } from './WindLayer';
@@ -102,7 +104,7 @@ function settleCritter(td: Toad) {
 }
 const newTrees = (): Tree[] => TREES.map((tr) => ({ ...tr, hits: 0, felledAt: null, flash: 0, shake: 0 }));
 
-export function BaseScreen() {
+export function BaseScreen({ player }: { player: Hero }) {
   const insets = useSafeAreaInsets();
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   // DS-like framing: about 190 art pixels across, at a whole-number scale.
@@ -722,7 +724,7 @@ export function BaseScreen() {
   items.push({
     y: h.y,
     key: 'hero',
-    node: <Mover key="hero" pic={heroOwPicture(h.dir, chop.current ? (chop.current.ms < CHOP_MS / 2 ? 2 : 0) : h.frame, 0, s)} x={heroX} y={heroY} w={16} h={22} s={s} shadow blink={h.grace > 0} />,
+    node: <Mover key="hero" pic={heroOwPicture(h.dir, chop.current ? (chop.current.ms < CHOP_MS / 2 ? 2 : 0) : h.frame, player.look, s)} x={heroX} y={heroY} w={HERO_OW_W} h={HERO_OW_H} s={s} shadow blink={h.grace > 0} />,
   });
   items.sort((a, b) => a.y - b.y);
 
@@ -840,6 +842,7 @@ export function BaseScreen() {
           <View style={StyleSheet.absoluteFill}>
             <BattleScreen
               key={battle.key}
+              you={player}
               encounter={
                 battle.foe.kind === 'butcher'
                   ? { look: 0, name: 'Old Man', kind: 'butcher' }
@@ -851,7 +854,7 @@ export function BaseScreen() {
         ) : null}
         {arena ? (
           <View style={StyleSheet.absoluteFill}>
-            <BattleScreen onExit={() => setArena(false)} />
+            <BattleScreen you={player} onExit={() => setArena(false)} />
           </View>
         ) : null}
         <FlashOverlay value={flash} />

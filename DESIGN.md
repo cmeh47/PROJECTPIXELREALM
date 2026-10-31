@@ -74,6 +74,22 @@ Deeper tones for props on the overworld, so trees and paths read clearly against
 | `stone` | `#DCD3E6` | Cobblestones |
 | `stoneDeep` | `#B2A6C6` | Mortar between cobblestones, path rim |
 
+### Characters (skin tones)
+
+Four skin tones a player can pick for their hero, each with a shade for ears, necks and the jaw.
+Peach is the existing `peach` token. Hair colors reuse tokens above (bark, butter, inkSoft,
+lavender, rose), each with its deeper partner as the shade.
+
+| Token | Hex | Use |
+|---|---|---|
+| `skinFair` / `skinFairShade` | `#FFE4D4` / `#F2C2AC` | Fair skin |
+| `peach` / `skinPeachShade` | `#FFC9B0` / `#EBA68C` | Peach skin |
+| `skinTan` / `skinTanShade` | `#D99B74` / `#B97A56` | Tan skin |
+| `skinDeep` / `skinDeepShade` | `#93604B` / `#744838` | Deep skin |
+
+Eyes are two-by-two `ink` with a white shine pixel so they read on every tone; cheeks are `rose`
+on the lighter two tones and `hpRose` on the darker two.
+
 ### Night mode ("Moonlit Forest")
 
 | Token | Hex |

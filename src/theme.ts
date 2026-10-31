@@ -25,6 +25,14 @@ export const colors = {
   barkDeep: '#6B4F4A',
   stone: '#DCD3E6',
   stoneDeep: '#B2A6C6',
+  // Characters (DESIGN.md section 2, "Characters"): skin tones, each with a shade for necks and ears.
+  skinFair: '#FFE4D4',
+  skinFairShade: '#F2C2AC',
+  skinPeachShade: '#EBA68C',
+  skinTan: '#D99B74',
+  skinTanShade: '#B97A56',
+  skinDeep: '#93604B',
+  skinDeepShade: '#744838',
 } as const;
 
 export const P = 4;

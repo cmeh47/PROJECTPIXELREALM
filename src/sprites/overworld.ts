@@ -1,4 +1,4 @@
-import { HERO_LOOKS, FOE_LOOKS } from './characters';
+import { FOE_LOOKS } from './characters';
 import { Grid, PAL } from './pixel';
 
 // Top-down sprites for the base map, DS style: chibi proportions, a 1-pixel ink outline,
@@ -6,101 +6,10 @@ import { Grid, PAL } from './pixel';
 
 export type Dir = 'down' | 'up' | 'left' | 'right';
 
-// Hero, 16 x 22 frame (14 x 20 body plus the outline). Legs are added per walk frame.
-export const HERO_OW_W = 16;
-export const HERO_OW_H = 22;
-
-const HERO_DOWN = [
-  '....LLLLLL....',
-  '..LLHHLLLLLL..',
-  '.LLHLLLLLLLLD.',
-  '.LLLLLLLLLLLD.',
-  '.LDRRRRRRRRDD.',
-  '.DRSSSSSSSSRD.',
-  '.DSSKSSSSKSSD.',
-  '.DSSKSSSSKSSD.',
-  '..SrSSSSSSrS..',
-  '...SSSSSSSS...',
-  '..YDDDbbDDDY..',
-  '.YYDLLDDLLDYY.',
-  '.YGDDDDDDDDGY.',
-  '.YGSDbbbbDSGY.',
-  '..GDDDDDDDDG..',
-  '...DLDDDDLD...',
-];
-
-const HERO_UP = [
-  '....LLLLLL....',
-  '..LLHHLLLLLL..',
-  '.LLHLLLLLLLLD.',
-  '.LLLLLLLLLLLD.',
-  '.LLLLLLLLLLLD.',
-  '.DLLLLLLLLLDD.',
-  '.DRRRRRRRRRRD.',
-  '.DRRRRRRRRRRD.',
-  '..RRRRRRRRRR..',
-  '...RRRRRRRR...',
-  '..YYYYYYYYYY..',
-  '.YYHYYYYYYYYY.',
-  '.SGYYYYYYYYGS.',
-  '.YGYYYYYYYYGY.',
-  '..GGYYYYYYGG..',
-  '...GGGGGGGG...',
-];
-
-const HERO_RIGHT = [
-  '....LLLLLL....',
-  '...LLHHLLLLL..',
-  '..LHLLLLLLLLD.',
-  '..LLLLLLLLLLD.',
-  '..RRRRRRLDDDD.',
-  '..RRRSSSSSSDD.',
-  '..RRSSSSSKSD..',
-  '..RRSSSSSKSS..',
-  '...RSSSSSSrS..',
-  '....SSSSSSS...',
-  '...YYDDDDb....',
-  '..YYDDLLDD....',
-  '..YGDDDDDSS...',
-  '..YGDbbbbD....',
-  '...GDDDDDD....',
-  '....DLDDLD....',
-];
-
-function mirror(map: string[]) {
-  return map.map((r) => r.split('').reverse().join(''));
-}
-
-// frame 0 = standing, 1 and 3 = passing (body bobs up), 2 = the other foot forward.
-export function heroOverworld(dir: Dir, frame: number, look = 0): Grid {
-  const g = new Grid(HERO_OW_W, HERO_OW_H);
-  const sw = HERO_LOOKS[look] ?? {};
-  const bob = frame % 2 === 1 ? -1 : 0;
-  const top = 2 + bob;
-  const legY = top + 16;
-  const boot = (x: number, y: number, h: number) => {
-    for (let j = 0; j < h; j++) {
-      g.set(x, y + j, PAL.P);
-      g.set(x + 1, y + j, PAL.P);
-    }
-  };
-  // Legs: on a step, one foot is planted (2 rows) and the other is lifted (1 row).
-  const a = frame === 2 ? 1 : 2;
-  const b = frame === 0 || frame === 2 ? 2 : 1;
-  if (dir === 'down' || dir === 'up') {
-    boot(4, legY, frame === 0 ? 2 : a);
-    boot(10, legY, frame === 0 ? 2 : b);
-  } else {
-    const fwd = dir === 'right' ? 1 : -1;
-    const stride = frame === 0 ? 0 : frame === 2 ? 1 : 0;
-    boot(dir === 'right' ? 5 - stride : 9 + stride, legY, 2);
-    boot(dir === 'right' ? 8 + stride * fwd : 6 - stride, legY, frame === 2 ? 2 : 1 + (frame === 0 ? 1 : 0));
-  }
-  const map = dir === 'down' ? HERO_DOWN : dir === 'up' ? HERO_UP : dir === 'right' ? HERO_RIGHT : mirror(HERO_RIGHT);
-  g.stamp(map, 1, top, sw);
-  g.outline(PAL.K);
-  return g;
-}
+// People on the base (the old butcher) use a 16 x 22 frame. The hero has its own, taller frame
+// for the wizard hat (src/sprites/hero.ts).
+export const NPC_OW_W = 16;
+export const NPC_OW_H = 22;
 
 // Wandering toadstool, 16 x 16 frame.
 export const TOAD_OW_W = 16;
@@ -325,7 +234,7 @@ const OLD_MAN = [
 ];
 
 export function oldManOverworld(frame: number): Grid {
-  const g = new Grid(HERO_OW_W, HERO_OW_H);
+  const g = new Grid(NPC_OW_W, NPC_OW_H);
   const top = 2 + (frame % 2);
   for (const x of [4, 10]) for (let y = 18; y < 20; y++) {
     g.set(x, y, PAL.P);

@@ -1,7 +1,8 @@
 import { createPicture, Skia, type SkPicture } from '@shopify/react-native-skia';
 
-import { bubbleGrid, heartGrid, heroOverworld, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, shackGrid, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
+import { bubbleGrid, heartGrid, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, shackGrid, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
 import { Grid, PAL } from '../sprites/pixel';
+import { heroOw, type HeroLook } from '../sprites/hero';
 import { gridPicture } from '../sprites/render';
 import { staticGround, windFrames, type Px } from './ground';
 import { MAP_H, MAP_W } from './map';
@@ -18,8 +19,8 @@ function cached(key: string, build: () => SkPicture) {
   return pic;
 }
 
-export const heroOwPicture = (dir: Dir, frame: number, look: number, s: number) =>
-  gridPicture(`ow-hero-${dir}-${frame}-${look}`, heroOverworld(dir, frame, look), s);
+export const heroOwPicture = (dir: Dir, frame: number, look: HeroLook, s: number) =>
+  gridPicture(`ow-hero-${dir}-${frame}-${look.cls}-${look.sex}-${look.skin}-${look.hair}-${look.hairColor}`, heroOw(look, dir, frame), s);
 export const toadOwPicture = (hop: number, look: number, flip: boolean, s: number) =>
   gridPicture(`ow-toad-${hop}-${look}-${flip ? 1 : 0}`, toadOverworld(hop, look, flip), s);
 export const treePicture = (variant: number, flash: boolean, s: number) =>
