@@ -629,3 +629,34 @@ export function heroHead(look: HeroLook): Grid {
   g.outline(PAL.K);
   return g;
 }
+
+// Starting stats out of 10, shown as bars on the creation screen. Each class leads in its own
+// categories. (Combat doesn't read them yet; that comes with levels and gear.)
+export type StatKey = 'hp' | 'str' | 'def' | 'mag' | 'spd';
+export const STAT_LIST: { key: StatKey; label: string; name: string }[] = [
+  { key: 'hp', label: 'HP', name: 'Health' },
+  { key: 'str', label: 'STR', name: 'Strength' },
+  { key: 'def', label: 'DEF', name: 'Defense' },
+  { key: 'mag', label: 'MAG', name: 'Magic' },
+  { key: 'spd', label: 'SPD', name: 'Speed' },
+];
+export const CLASS_STATS: Record<HeroClass, Record<StatKey, number>> = {
+  warrior: { hp: 8, str: 7, def: 7, mag: 2, spd: 4 },
+  mage: { hp: 5, str: 3, def: 3, mag: 8, spd: 6 },
+};
+
+// The other three members of the demo party in a full battle.
+export const PARTY_LOOKS: HeroLook[] = [
+  DEFAULT_LOOK,
+  { cls: 'mage', sex: 'female', skin: 0, hair: 2, hairColor: 4 },
+  { cls: 'warrior', sex: 'female', skin: 3, hair: 3, hairColor: 1 },
+  { cls: 'mage', sex: 'male', skin: 2, hair: 1, hairColor: 2 },
+];
+
+// A small face for the battle HUD: the front head from the brim or helm down, 16 x 13.
+export function heroFace(look: HeroLook): Grid {
+  const g = new Grid(16, 13);
+  stampHead(g, look, 'down', 1, 2);
+  g.outline(PAL.K);
+  return g;
+}

@@ -46,10 +46,11 @@ If `npx expo install` fails behind a proxy, prefix it with `EXPO_OFFLINE=1`.
 
 ## Code map
 
-- `App.tsx` loads fonts and gesture/safe-area roots. `src/boot/index.web.ts` loads CanvasKit before mounting on web; `src/boot/index.ts` is the phone entry.
-- `src/sprites/`: pixel grid, character layers (hero, Mossback Toadstool) and Skia picture rendering.
+- `App.tsx` loads fonts and gesture/safe-area roots, then shows character creation on first launch (no hero yet) or the base. `src/boot/index.web.ts` loads CanvasKit before mounting on web; `src/boot/index.ts` is the phone entry.
+- `src/sprites/`: pixel grid, character layers (Mossback Toadstool, the butcher) and Skia picture rendering. `hero.ts` draws the player's hero from a `HeroLook` (class, sex, skin, hairstyle, hair color): base-map sprite, posable battle sprite, HUD face, plus class stats and the demo party's looks.
+- `src/create/CharacterCreation.tsx`: the first-launch screen (live preview, stat bars, choices, name).
 - `src/combat/`: `rules.ts` (numbers), `anims.ts` (12 fps frame tables), `useCombatInput.ts` (UI-thread timing), `BattleScene.tsx` (Skia canvas), `BattleScreen.tsx` (the battle and menus).
-- `src/net/`: `supabase.ts` (client, guest sign-in), `useBaseSave.ts` (loads the base, sends each change to a server function in order, applies the server's copy). Server side: `supabase/migrations/` (the `bases` table, read-only to players, and the functions that change it).
+- `src/net/`: `supabase.ts` (client, guest sign-in), `useHero.ts` (loads or creates the hero, keeps a copy on the device for offline play), `useBaseSave.ts` (loads the base, sends each change to a server function in order, applies the server's copy). Server side: `supabase/migrations/` (the `bases` and `heroes` tables, read-only to players, and the functions that change them).
 - `src/ui/pixel.tsx`: framed panels, pixel buttons, bars, chips and icons.
-- `src/sprites/overworld.ts`: small top-down sprites for the base (hero walk cycle, hopping toadstool, trees, stump, cottage, "!" bubble, the old butcher, his hut ruins, shack build stages and hammer).
+- `src/sprites/overworld.ts`: small top-down sprites for the base (hopping toadstool, trees, stump, cottage, "!" bubble, the old butcher, his hut ruins, shack build stages and hammer).
 - `src/base/`: `map.ts` (layout, trees, grass and flower spots), `ground.ts` (ground recipe as plain pixels: cobbled path, pond, wind frames and gust timing, no Skia), `art.ts` (Skia pictures), `WindLayer.tsx` (swaying grass), `Conversation.tsx` (scripted RPG text box: headshot, typed lines, voice, choices, end tags), `npcs.ts` (speakers and scripts: critters, the old butcher), `QuestLog.tsx` (collapsible scroll quest log), `BaseScreen.tsx` (game loop, touch-to-walk, chopping, encounters, NPC talk, quests, the butcher's shack rebuild timer, swirl into `BattleScreen`).
