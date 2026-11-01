@@ -14,6 +14,7 @@ import { colors } from '../theme';
 import { Framed, haptic, styles as t } from '../ui/pixel';
 import { bake, boarOwPicture, dizzyPicture, heroOwPicture, meatPicture, merchantOwPicture, tapRingPicture, treePicture, type Baked } from './art';
 import { Conversation } from './Conversation';
+import { followY, newVCam } from './camera';
 import { faceToward, newFollower, stepFollower, type Follower } from './follow';
 import { MERCHANT_SCRIPT, MERCHANT_SPEAKER, PUUL_SPEAKER, type MerchantStage } from './npcs';
 import { QuestLog, type Quest } from './QuestLog';
@@ -97,8 +98,8 @@ export function WoodsScreen(props: WoodsProps) {
   const s = box ? Math.max(2, Math.floor(box.w / 190)) : 2;
   const viewW = box ? box.w / s : 195;
   const viewH = box ? box.h / s : 420;
-  const viewRef = useRef({ w: viewW, h: viewH });
-  viewRef.current = { w: viewW, h: viewH };
+  const viewRef = useRef({ w: viewW, h: viewH, s });
+  viewRef.current = { w: viewW, h: viewH, s };
 
   const [, force] = useReducer((x: number) => x + 1, 0);
   const [phase, setPhaseState] = useState<Phase>('roam');
@@ -161,6 +162,7 @@ export function WoodsScreen(props: WoodsProps) {
   const heroY = useSharedValue(ENTRY.y);
   const camX = useSharedValue(0);
   const camY = useSharedValue(0);
+  const vcam = useRef(newVCam());
   const bx = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
   const by = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
   const px = useSharedValue(puul.current.x);
@@ -621,7 +623,7 @@ export function WoodsScreen(props: WoodsProps) {
       });
       const v = viewRef.current;
       put(camX, Math.round(Math.max(0, Math.min(WOODS_W - v.w, h.x - v.w / 2))));
-      put(camY, Math.round(Math.max(0, Math.min(WOODS_H - v.h, h.y - 10 - v.h / 2))));
+      put(camY, followY(vcam.current, h.y, v.h, WOODS_H, dt, v.s));
       if (repaint) force();
       raf = requestAnimationFrame(tick);
     };
