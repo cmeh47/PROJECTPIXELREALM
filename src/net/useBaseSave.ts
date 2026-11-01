@@ -11,6 +11,10 @@ export type SavedBase = {
   butcher: ServerButcher;
   buildStartedAt: number | null; // on this device's clock
   buildDone: boolean;
+  meat: number;
+  groundMeat: number; // dropped in the Boar Woods, waiting to be picked up
+  coins: number;
+  boarsBackAt: (number | null)[]; // when each of the three boars is back, on this device's clock
 };
 
 // offline: no Supabase project configured; loading: signing in and fetching; saved: in step with the
@@ -23,9 +27,24 @@ export type BaseCall =
   | { fn: 'chop' }
   | { fn: 'shroomie_battle'; idx: number; result: 'won' | 'tamed' }
   | { fn: 'reset_base' }
-  | { fn: 'butcher_step'; step: 'beaten' | 'accept' | 'handin' | 'opened' };
+  | { fn: 'butcher_step'; step: 'beaten' | 'accept' | 'handin' | 'opened' }
+  | { fn: 'boar_hunt'; idx: number; result: 'won'; perfect: boolean }
+  | { fn: 'pick_up_meat'; n: number }
+  | { fn: 'sell_meat' };
 
-type Raw = { wood: number; shroomies: ShroomieStatus[]; butcher: ServerButcher; build_started_at: string | null; build_done: boolean; server_now: string };
+type Raw = {
+  wood: number;
+  shroomies: ShroomieStatus[];
+  butcher: ServerButcher;
+  build_started_at: string | null;
+  build_done: boolean;
+  // Added by the boar hunting migration; missing if it hasn't been applied yet.
+  meat?: number;
+  ground_meat?: number;
+  coins?: number;
+  boars_back_at?: (string | null)[];
+  server_now: string;
+};
 
 function fromRaw(r: Raw): SavedBase {
   // The server's clock decides the rebuild; shift its start onto this device's clock.
@@ -36,12 +55,18 @@ function fromRaw(r: Raw): SavedBase {
     butcher: r.butcher,
     buildStartedAt: r.build_started_at ? Date.parse(r.build_started_at) - offset : null,
     buildDone: r.build_done,
+    meat: r.meat ?? 0,
+    groundMeat: r.ground_meat ?? 0,
+    coins: r.coins ?? 0,
+    boarsBackAt: (r.boars_back_at ?? [null, null, null]).map((t) => (t ? Date.parse(t) - offset : null)),
   };
 }
 
 const args = (c: BaseCall) => {
   if (c.fn === 'shroomie_battle') return { idx: c.idx, result: c.result };
   if (c.fn === 'butcher_step') return { step: c.step };
+  if (c.fn === 'boar_hunt') return { idx: c.idx, result: c.result, perfect: c.perfect };
+  if (c.fn === 'pick_up_meat') return { n: c.n };
   return undefined;
 };
 

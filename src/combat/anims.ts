@@ -108,7 +108,7 @@ export const FOE = {
     [3, { x: 2, crouch: true, tilt: 2, ca: 170, hx: -3, hy: 4, stars: 1 }],
     [3, { x: 2, crouch: true, tilt: -1, ca: 170, hx: -3, hy: 4, stars: 2 }],
   ] as Frames<FoePose>,
-  down: { x: 2, crouch: true, tilt: -3, ca: 175, hx: -3, hy: 5 } as FoePose,
+  down: { x: 2, crouch: true, tilt: -3, ca: 175, hx: -3, hy: 5, down: true } as FoePose,
   happy: [
     [3, { capDy: -1, ca: -120 }],
     [3, { crouch: true, ca: -120 }],

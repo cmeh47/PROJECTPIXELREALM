@@ -56,3 +56,16 @@ Decided on 2026-10-25.
 | The butcher | A bald old man by his knocked-down hut in the bottom-right corner. Tap him and you walk over and talk. He's hostile at first ("Whoa! Get back! Who are you?", two replies, then a battle with no taming). In battle he's drawn at the hero's proportions, holding his cleaver low until he winds up. Beat him and he calms down, introduces himself as a butcher and asks you to rebuild his hut. No: "Oh... okay. Maybe later." and he asks again next time. Yes: the quest starts. |
 | Quests | The quest log is a little parchment scroll under the base panel, with wooden rollers; tap its header to roll it up to one band. It's only on screen while you have a quest. First quest: rebuild the butcher's hut with 10 wood (wood carried out of 10, with the butcher's face). Handing in the wood completes it and the log goes away. |
 | The butcher's shack | After the hand-in he rebuilds for 10 real minutes, hammering beside it, with a bar and a time-left label over the site. The site steps through eight stages: posts and a log pile, walls rising, rafters, shingles, then the finished shack (rose roof, striped awning over a shop counter, sausages in the window, a ham on the sign). He then says he'll buy any meat you bring and give you half the profit from selling it in town; buying meat and the town trips come later. The timer isn't saved yet: it lives in memory until the base is stored in Supabase. |
+
+## Boar hunting (decided 2026-10-31)
+
+| Topic | Decision |
+|---|---|
+| Where | The Boar Woods, a separate wood reached through a gap in the base's east tree ring (a sign with a boar head marks it). A leaf wipe plays between the two. Walk back out the west gap to go home. |
+| Boars | Three roam the woods. Big, ugly and front-heavy: a huge head straight into a high hump, short back legs, side-by-side nostrils and tusks that run forward from the snout with an upturned tip. |
+| Tusk Charge | A boar that spots you (64 px) pops a "!" and charges in a straight line. Contact starts a battle. Step aside and it skids past into a dizzy spell; touching a dizzy boar starts the battle with it already Broken. |
+| Boar battle | 80 HP, no taming. A win drops 1 boar meat, or 2 if the finishing hit was Perfect. Beaten boars come back after 2 minutes. |
+| Meat | Drops on the ground in the woods. Tap it to walk over and pick it up. |
+| Inventory | One inventory for everything you carry, opened from the bag button under the base panel: 20 slots, each a stack of up to 99 of one item. Wood lives here too. When it's full, chopping and pickups stop with a "FULL" pop. |
+| Selling | Once his shack is open, the butcher buys all your boar meat at 5 coins each. Coins show in the base panel. |
+| Server | `boar_hunt`, `pick_up_meat` and `sell_meat` server functions enforce the respawn, the ground meat, the inventory limits and the price. |

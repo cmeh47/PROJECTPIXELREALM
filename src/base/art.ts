@@ -1,7 +1,8 @@
 import { Skia, type SkImage } from '@shopify/react-native-skia';
 
 import { bubbleGrid, heartGrid, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, shackGrid, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
-import { Grid, PAL } from '../sprites/pixel';
+import { bagGrid, boarOverworld, coinGrid, meatGrid, signGrid } from '../sprites/boar';
+import { Grid, PAL, star } from '../sprites/pixel';
 import { heroOw, type HeroLook } from '../sprites/hero';
 import { gridPicture } from '../sprites/render';
 import { staticGround, windFrames, type Px } from './ground';
@@ -29,6 +30,37 @@ export const bubblePicture = (s: number) => gridPicture('ow-bubble', () => bubbl
 export const heartPicture = (s: number) => gridPicture('ow-heart', () => heartGrid(), s);
 export const leafPicture = (s: number) => gridPicture('ow-leaf', () => leafGrid(), s);
 export const logPicture = (s: number) => gridPicture('ow-log', () => logGrid(), s);
+export const boarOwPicture = (frame: number, flip: boolean, s: number) => gridPicture(`ow-boar-${frame}-${flip ? 1 : 0}`, () => boarOverworld(frame, flip), s);
+export const meatPicture = (s: number) => gridPicture('ow-meat', () => meatGrid(), s);
+export const bagPicture = (open: boolean, s: number) => gridPicture(`ow-bag-${open ? 1 : 0}`, () => bagGrid(open), s);
+export const coinPicture = (s: number) => gridPicture('ow-coin', () => coinGrid(), s);
+export const signPicture = (s: number) => gridPicture('ow-sign', () => signGrid(), s);
+// Dizzy stars circling a boar's head after it charges past you, 14 x 6, in three turns.
+export const dizzyPicture = (frame: number, s: number) =>
+  gridPicture(
+    `ow-dizzy-${frame}`,
+    () => {
+      const g = new Grid(16, 7);
+      const pos: [number, number][] = [[2, 3], [7, 1], [12, 3], [7, 5]];
+      for (let i = 0; i < 3; i++) {
+        const [x, y] = pos[(i + frame) % 4];
+        star(g, x, y, 1, PAL.B, PAL.b);
+      }
+      return g;
+    },
+    s,
+  );
+// A tap marker: a dotted lavender ring on the ground under what you tapped, 20 x 10.
+export const tapRingPicture = (s: number) =>
+  gridPicture(
+    'ow-tap-ring',
+    () => {
+      const g = new Grid(20, 10);
+      for (let a = 0; a < 360; a += 20) g.set(10 + Math.cos((a * Math.PI) / 180) * 9, 5 + Math.sin((a * Math.PI) / 180) * 4, PAL.D);
+      return g;
+    },
+    s,
+  );
 
 function flashed(g: Grid) {
   for (let i = 0; i < g.c.length; i++) if (g.c[i] && g.c[i] !== PAL.K) g.c[i] = PAL.H;
@@ -58,7 +90,7 @@ export function swipePicture(flip: boolean, s: number) {
 // what the list covers. The map draws these scaled up with nearest-neighbour sampling: one textured
 // quad per layer instead of replaying thousands of squares every frame.
 export type Baked = { image: SkImage; x: number; y: number; w: number; h: number };
-function bake(list: Px[]): Baked | null {
+export function bake(list: Px[], mapW = MAP_W, mapH = MAP_H): Baked | null {
   if (!list.length) return null;
   let x0 = Infinity;
   let y0 = Infinity;
@@ -72,8 +104,8 @@ function bake(list: Px[]): Baked | null {
   }
   x0 = Math.max(0, Math.floor(x0));
   y0 = Math.max(0, Math.floor(y0));
-  x1 = Math.min(MAP_W, Math.ceil(x1));
-  y1 = Math.min(MAP_H, Math.ceil(y1));
+  x1 = Math.min(mapW, Math.ceil(x1));
+  y1 = Math.min(mapH, Math.ceil(y1));
   const w = x1 - x0;
   const h = y1 - y0;
   if (w <= 0 || h <= 0) return null;

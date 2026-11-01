@@ -1,7 +1,24 @@
+import { boarLayers, boarPortrait, type BoarPose } from './boar';
 import { heroBattle, PARTY_LOOKS, type HeroLook } from './hero';
 import { arc, Grid, PAL, seg, star } from './pixel';
 
 export type Layer = { grid: Grid; alpha: number };
+
+// The battle drives every foe with the same pose tables (combat/anims.ts FOE), written for the
+// Shroomie's club. The boar reads them as its Tusk Charge: the wind-up and tell become the hoof
+// scrape with the head dropping, the swing is the charge, the impact is the skid at contact.
+function boarPoseOf(p: FoePose): BoarPose {
+  const tilt = p.tilt ?? 0;
+  if (p.down) return { ko: true, x: p.x };
+  if (p.smear) return { x: p.x, legs: 'run2', headDy: 3, dust: 3, flash: p.flash };
+  if (p.spark != null) return { x: p.x, legs: 'brace', headDy: 3, dust: 1, flash: p.flash };
+  if (p.stars != null) return { x: p.x, legs: 'brace', headDy: 1, stars: p.stars, flash: p.flash };
+  if (p.flash) return { x: p.x, headDy: 1, flash: true };
+  if (p.glint) return { x: p.x, legs: 'paw', headDy: 2, glint: true, steam: true, dust: 1 };
+  if (tilt >= 2) return { x: p.x, legs: 'paw', headDy: 2, steam: tilt >= 3 };
+  if ((p.ca ?? -120) > 100) return { x: p.x, legs: 'brace', headDy: 1 }; // recovering from the charge
+  return { x: p.x, lift: p.capDy === -1 ? 1 : 0, headDy: p.crouch ? 1 : 0, steam: p.capDy === 1 };
+}
 
 // The hero in battle (drawn in hero.ts). Frame: 56 x 40 art pixels, feet on row 37, facing right.
 export const HERO_W = 56;
@@ -104,7 +121,8 @@ export type FoePose = {
   stars?: number;
   smear?: [number, number, number, number];
   look?: number;
-  kind?: 'shroomie' | 'butcher';
+  kind?: 'shroomie' | 'butcher' | 'boar';
+  down?: boolean; // knocked out (the boar draws its own collapse)
 };
 
 // Cap colors for a mixed pack of toadstools.
@@ -115,6 +133,7 @@ const STEM = ['.CVVVVVVVVC.', 'CVVVVVVVVVVC', 'CVKVVVKVVVVC', 'CVKVVVKVVVVC', 'C
 
 export function foeLayers(p: FoePose): Layer[] {
   if (p.kind === 'butcher') return butcherLayers(p);
+  if (p.kind === 'boar') return boarLayers(boarPoseOf(p));
   const g = new Grid(FOE_W, FOE_H);
   const bx = 36 + (p.x ?? 0);
   const gy = FOE_GROUND;
@@ -174,6 +193,7 @@ export function foeLayers(p: FoePose): Layer[] {
 // The Shroomie's head for the battle log and the new-critter card.
 export function foePortrait(kind: FoePose['kind'] = 'shroomie'): Grid {
   const g = new Grid(20, 20);
+  if (kind === 'boar') return boarPortrait();
   if (kind === 'butcher') {
     g.stamp(BUTCHER_BODY, 5, 13);
     g.stamp(BUTCHER_HEAD, 5, 5);
