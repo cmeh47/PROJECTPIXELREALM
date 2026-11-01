@@ -73,6 +73,15 @@ Deeper tones for props on the overworld, so trees and paths read clearly against
 | `barkDeep` | `#6B4F4A` | Trunk shade, bark marks |
 | `stone` | `#DCD3E6` | Cobblestones |
 | `stoneDeep` | `#B2A6C6` | Mortar between cobblestones, path rim |
+| `barkPale` | `#D9C6B0` | Thick pale trunks (golden trees) |
+| `barkPaleShade` | `#B39C88` | Pale trunk shade and bark marks |
+| `barkDark` | `#64443A` | Twisty dark trunks (red and purple trees) |
+| `barkDarkShade` | `#4E342F` | Twisty trunk shade |
+| `leafGold` | `#E6B84C` | Golden canopies (lit with `butter`) |
+| `leafGoldDeep` | `#BC8838` | Golden canopy shade and tier lines |
+| `leafRed` | `#D8636A` | Red canopies (lit with `hpRose`, glint `rose`) |
+| `leafRedDeep` | `#A8454F` | Red canopy shade and tier lines |
+| `leafPlumDeep` | `#7D5CB8` | Purple canopy shade; the body is `epicPurple`, lit with `lavender` |
 
 ### Characters (skin tones)
 
