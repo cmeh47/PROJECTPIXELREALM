@@ -69,3 +69,16 @@ Decided on 2026-10-25.
 | Inventory | One inventory for everything you carry, opened from the bag button under the base panel: 20 slots, each a stack of up to 99 of one item. Wood lives here too. When it's full, chopping and pickups stop with a "FULL" pop. |
 | Selling | Once his shack is open, the butcher buys all your boar meat at 5 coins each. Coins show in the base panel. |
 | Server | `boar_hunt`, `pick_up_meat` and `sell_meat` server functions enforce the respawn, the ground meat, the inventory limits and the price. |
+
+## Puul the merchant (decided 2026-11-01)
+
+| Topic | Decision |
+|---|---|
+| Where | A clearing in the far northeast of the Boar Woods, the hardest place to reach, so you explore and fight a few boars on the way. The woods grew east to 40 tiles wide; the three roaming boars stand along the route. The clearing is walled by trees with one way in, on its south side. |
+| Puul | A travelling merchant with darker tan skin, short black hair and a thin black mustache, in a rose vest over a vellum shirt with a butter sash, leaning on a knobbed walking stick. His name shows as "???" until he tells you it. |
+| The rescue | Three boars trot in circles round him while he throws his arms up. From close by he shouts "HELP!" every few seconds. Walking into the clearing pops a "!" over him and his plea: "Gyahhh! Oh, hey, HEY! Please, you there, please help me!" The battle starts on its own. |
+| The battle | You and Puul against three boars. Puul is NPC controlled: he steps in and swings his walking stick with the butcher's swing, frame for frame, once a round after you (he's slower). Boars can go for him; he blocks, dodges or takes the hit. Losing sends you to the edge of the woods; fleeing backs you out of the clearing, and he pleads again when you come back. |
+| After | He thanks you and says he's a merchant named Puul. You tell him you have a base; he says "Wow, you have a place? That's great! I'll move into your base and handle your trade." |
+| Escort | He follows the path you walk, all the way out the west gap. Boars you meet on the way fight both of you. Reaching the base completes the escort. |
+| The stand | On the base he asks for 20 wood to build a merchant stand (Yes or Not yet; he asks again later). He waits at a staked-out plot west of the plaza. Handing in the wood builds the stand at once: a plank counter under a butter-and-rose striped awning. Trading at it comes later. |
+| Server | `merchant_step` moves the story forward one step at a time (`rescued`, `home`, `accept`, `handin`) and checks the 20 wood. The rescue battle's result is still trusted from the app. |

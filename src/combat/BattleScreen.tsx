@@ -123,7 +123,7 @@ const BOAR_MAX_HP = 80;
 function foeCopy(kind: FoePose['kind']) {
   if (kind === 'boar')
     return {
-      intro: (name: string) => `A ${name} snorts and lowers its tusks.`,
+      intro: (name: string) => `${/^[AEIOU]/.test(name) ? 'An' : 'A'} ${name} snorts and lowers its tusks.`,
       tell: (name: string) => `The ${name} paws the ground!`,
       win: 'The boar slumps over. Victory!',
       broken: 'The boar is Broken! It staggers, dizzy. Hit it hard.',
@@ -202,7 +202,8 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
   const [full, setFull] = useState(false);
   // A group encounter (a pack, or an ally beside you) uses the wide party camera.
   const wide = full || !!encounter?.pack || !!encounter?.ally;
-  const field = useMemo(() => (box ? fieldLayout(box.w, box.h, wide) : null), [box, wide]);
+  const big = encounter?.kind === 'boar' && !!encounter.pack;
+  const field = useMemo(() => (box ? fieldLayout(box.w, box.h, wide, big) : null), [box, wide, big]);
   const fieldRef = useRef<Field | null>(field);
   fieldRef.current = field;
 
@@ -672,7 +673,9 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
         // Puul steps in and brings his walking stick down: the butcher's swing, frame for frame.
         setLine(`${g0.heroes[i].name} swings his walking stick at the ${g0.foes[j].name}!`);
         g0.heroes[i].z = g.f.foes[j].y + 0.5;
-        moveHero(i, g.dashTo(i, j), TICK * 3);
+        // He stops a little shorter than a sword-swinger: the stick has the reach, and boars are long.
+        const to = g.dashTo(i, j);
+        moveHero(i, { dx: to.dx - (g0.foes[j].kind === 'boar' ? 12 : 4), dy: to.dy }, TICK * 3);
         await playAlly(i, [[2, { crouch: true }], [1, {}]]);
         await playAlly(i, FOE.windup);
         setAllyPose(i, FOE.tellHold);
