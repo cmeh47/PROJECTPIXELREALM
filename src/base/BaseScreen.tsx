@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BattleScreen, type BattleResult } from '../combat/BattleScreen';
 import { PopText, type Pop } from '../combat/Pops';
-import { TREE_H, TREE_W, type Dir } from '../sprites/overworld';
+import { TREE_H, TREE_W, treeKind, type Dir, type TreeKind } from '../sprites/overworld';
 import { colors, fonts } from '../theme';
 import { Chip, Framed, haptic, PixelButton, styles as t } from '../ui/pixel';
 import {
@@ -70,7 +70,7 @@ type Toad = {
   status: 'wild' | 'gone' | 'critter';
 };
 type Tree = (typeof TREES)[number] & { hits: number; felledAt: number | null; flash: number; shake: number };
-type Leaf = { x: number; y: number; vx: number; vy: number; life: number };
+type Leaf = { x: number; y: number; vx: number; vy: number; life: number; kind?: TreeKind };
 type Phase = 'roam' | 'alert' | 'swirl' | 'battle';
 type Foe = { kind: 'shroomie'; id: number } | { kind: 'butcher' };
 // How far you've got with the old butcher: he's hostile until you beat him, then offers the hut job.
@@ -538,10 +538,10 @@ export function BaseScreen({ player }: { player: Hero }) {
             saveRef.current({ fn: 'chop' });
             haptic('light');
             pop('+1', colors.butter, tr.x, tr.y - 44);
-            for (let k = 0; k < 3; k++) leaves.current.push({ x: tr.x + rand(-10, 10), y: tr.y - rand(18, 36), vx: rand(-12, 12), vy: rand(-20, 0), life: 700 });
+            for (let k = 0; k < 3; k++) leaves.current.push({ x: tr.x + rand(-10, 10), y: tr.y - rand(18, 36), vx: rand(-12, 12), vy: rand(-20, 0), life: 700, kind: treeKind(tr.variant) });
             if (tr.hits >= CHOPS_PER_TREE) {
               tr.felledAt = Date.now();
-              for (let k = 0; k < 10; k++) leaves.current.push({ x: tr.x + rand(-12, 12), y: tr.y - rand(12, 40), vx: rand(-30, 30), vy: rand(-40, -5), life: 800 });
+              for (let k = 0; k < 10; k++) leaves.current.push({ x: tr.x + rand(-12, 12), y: tr.y - rand(12, 40), vx: rand(-30, 30), vy: rand(-40, -5), life: 800, kind: treeKind(tr.variant) });
               chop.current = null;
               haptic('success');
             }
@@ -879,7 +879,7 @@ export function BaseScreen({ player }: { player: Hero }) {
                 {chop.current ? <Swipe dir={h.dir} hx={h.x} hy={h.y} s={s} /> : null}
                 {leaves.current.map((l, i) => (
                   <Group key={i} transform={[{ translateX: Math.round(l.x) * s }, { translateY: Math.round(l.y) * s }]} opacity={Math.min(1, l.life / 300)}>
-                    <Picture picture={leafPicture(s)} />
+                    <Picture picture={leafPicture(s, l.kind)} />
                   </Group>
                 ))}
                 {toads.current.map((td, i) =>

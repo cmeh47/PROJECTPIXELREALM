@@ -25,6 +25,16 @@ export const colors = {
   barkDeep: '#6B4F4A',
   stone: '#DCD3E6',
   stoneDeep: '#B2A6C6',
+  // Autumn groves (DESIGN.md section 2, "World"): two more barks and three more canopies.
+  barkPale: '#D9C6B0',
+  barkPaleShade: '#B39C88',
+  barkDark: '#64443A',
+  barkDarkShade: '#4E342F',
+  leafGold: '#E6B84C',
+  leafGoldDeep: '#BC8838',
+  leafRed: '#D8636A',
+  leafRedDeep: '#A8454F',
+  leafPlumDeep: '#7D5CB8',
   // Characters (DESIGN.md section 2, "Characters"): skin tones, each with a shade for necks and ears.
   skinFair: '#FFE4D4',
   skinFairShade: '#F2C2AC',
