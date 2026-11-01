@@ -289,6 +289,8 @@ Combat is reactive turn-based (see the plan). The screen must always tell the pl
 | Dodge | 2 to 3 lavender afterimages fading out |
 | Counter | Camera punch-in to 115%, 120 ms slow-down, rising cut |
 | Break | Enemy flashes white, dizzy stars, "BREAK!" pop in `rose` |
+| Battle menu | ATTACK is the large `lavender` primary button; TAME (`mint`) and FLEE (`vellum`) sit side by side below it. Moves list shows AP cost and rune count. |
+| Tame | `mint` panel with a segmented chance bar; FLEE confirmation uses an `hpRose` danger button. |
 
 Timing windows (starting guesses, tuned on device): Perfect about ±80 ms, parry about ±60 ms, dodge about ±120 ms. Windows are adjustable in settings.
 
