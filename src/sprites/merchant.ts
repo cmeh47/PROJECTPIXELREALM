@@ -126,10 +126,11 @@ export function merchantFace(): Grid {
 }
 
 // ---------- Base map ----------
-// 18 x 22 frame, feet on row 19 (the outline takes rows 20 and 21). 14-wide maps stamped at x = 2,
+// 18 x 24 frame, feet on row 21 (the outline takes row 22). Three rows of headroom keep his hair and
+// the raised stick inside the frame when he bobs up a pixel. 14-wide maps stamped at x = 2,
 // the stick beside him on the right when he faces you.
 export const MERCHANT_OW_W = 18;
-export const MERCHANT_OW_H = 22;
+export const MERCHANT_OW_H = 24;
 const OX = 2;
 
 const OW_DOWN = [
@@ -202,7 +203,7 @@ export function merchantOverworld(dir: 'down' | 'up' | 'left' | 'right', frame =
   const g = new Grid(MERCHANT_OW_W, MERCHANT_OW_H);
   const d = dir === 'left' ? 'right' : dir;
   const bob = frame % 2 === 1 ? -1 : 0;
-  const top = 1 + bob;
+  const top = 3 + bob;
   const legY = top + 17;
   const boot = (x: number, h: number) => {
     for (let j = 0; j < h; j++) {

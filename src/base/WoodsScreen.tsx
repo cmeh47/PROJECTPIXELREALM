@@ -713,7 +713,9 @@ export function WoodsScreen(props: WoodsProps) {
   }
   if (pl.mode === 'lost') {
     // The three boars trotting round him. Each faces the way it's running.
-    const lap = (circleBeat.current * 125 * Math.PI * 2) / CIRCLE_MS;
+    // Same angle the game loop placed them at, so each boar sorts behind Puul on the far side of
+    // its lap and in front of him on the near side.
+    const lap = (circle.current.t / CIRCLE_MS) * Math.PI * 2;
     for (let k = 0; k < 3; k++) {
       const a = lap + (k * Math.PI * 2) / 3;
       const runsRight = -Math.sin(a) > 0;
