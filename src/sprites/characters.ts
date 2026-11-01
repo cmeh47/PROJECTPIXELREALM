@@ -1,8 +1,26 @@
+import { boarLayers, boarPortrait, type BoarPose } from './boar';
+import { heroBattle, PARTY_LOOKS, type HeroLook } from './hero';
 import { arc, Grid, PAL, seg, star } from './pixel';
 
 export type Layer = { grid: Grid; alpha: number };
 
-// Lavender Knight. Frame: 56 x 40 art pixels, feet on row 37, facing right.
+// The battle drives every foe with the same pose tables (combat/anims.ts FOE), written for the
+// Shroomie's club. The boar reads them as its Tusk Charge: the wind-up and tell become the hoof
+// scrape with the head dropping, the swing is the charge, the impact is the skid at contact.
+function boarPoseOf(p: FoePose): BoarPose {
+  const tilt = p.tilt ?? 0;
+  if (p.down) return { ko: true, x: p.x };
+  if (p.smear) return { x: p.x, legs: 'run2', headDy: 3, dust: 3, flash: p.flash };
+  if (p.spark != null) return { x: p.x, legs: 'brace', headDy: 3, dust: 1, flash: p.flash };
+  if (p.stars != null) return { x: p.x, legs: 'brace', headDy: 1, stars: p.stars, flash: p.flash };
+  if (p.flash) return { x: p.x, headDy: 1, flash: true };
+  if (p.glint) return { x: p.x, legs: 'paw', headDy: 2, glint: true, steam: true, dust: 1 };
+  if (tilt >= 2) return { x: p.x, legs: 'paw', headDy: 2, steam: tilt >= 3 };
+  if ((p.ca ?? -120) > 100) return { x: p.x, legs: 'brace', headDy: 1 }; // recovering from the charge
+  return { x: p.x, lift: p.capDy === -1 ? 1 : 0, headDy: p.crouch ? 1 : 0, steam: p.capDy === 1 };
+}
+
+// The hero in battle (drawn in hero.ts). Frame: 56 x 40 art pixels, feet on row 37, facing right.
 export const HERO_W = 56;
 export const HERO_H = 40;
 export const HERO_GROUND = 37;
@@ -23,99 +41,21 @@ export type HeroPose = {
   spark?: number;
   clang?: boolean;
   dust?: boolean;
+  // Mage casting: a dotted halo of light around the staff's orb (a palette key: G mana, Y frost,
+  // B spark, M mend) and the one-tick flare that stands in for a smear when a spell is released.
+  glow?: string;
+  flare?: boolean;
+  // A see-through wash of one palette color over the body (Mend's mint glow on the healed ally).
+  wash?: string;
   look?: number;
+  hero?: HeroLook;
 };
 
-// Palette swaps so the four party members read apart at a glance. Index 0 is the Lavender Knight.
-export const HERO_LOOKS: Record<string, string>[] = [
-  {},
-  { L: 'M', D: 'm' },
-  { L: 'B', D: 'b', Y: 'R', G: 'r' },
-  { L: 'Y', D: 'G', Y: 'L', G: 'D' },
-];
+type HeroBody = ReturnType<typeof heroBattle>;
 
-const HEAD = ['..RR.....', '.RRLLLL..', '.LLLLLLL.', 'LHLLLLLLD', 'LLLDSSSS.', 'LLLDSSKS.', 'LLLDSSSR.', '.DDDSSS..', '..DD.....'];
-const TORSO = ['.DLLLLL.', 'DLHLLLLD', 'DLLLLLLD', 'bbbbbbbb', 'LLLLLLLD', 'LLLLLLLD'];
-const LEGF = ['DD.', 'DD.', 'DD.', 'PPP'];
-const LEGFS = ['DD.', 'DD.', 'PPP'];
-const LEGB = ['PP.', 'PP.', 'PP.', 'PPP'];
-const LEGBS = ['PP.', 'PP.', 'PPP'];
-
-type HeroBody = { g: Grid; tip: { x: number; y: number }; sh: { x: number; y: number }; hand: { x: number; y: number }; feet: { x: number; y: number } };
-
+// The hero's look: `hero` when given (the player's own), otherwise one of the demo party's.
 function heroBody(p: HeroPose): HeroBody {
-  const g = new Grid(HERO_W, HERO_H);
-  const sw = HERO_LOOKS[p.look ?? 0] ?? {};
-  const bx = 22 + (p.x ?? 0);
-  const gy = HERO_GROUND + (p.y ?? 0);
-  const lg = p.legs ?? 'stand';
-  const lean = p.lean ?? 0;
-  const legH = p.crouch || lg === 'air' ? 3 : 4;
-  const ty = gy - legH - 5;
-  const tx = bx - 4 + Math.round(lean / 2);
-  let bl: number;
-  let fl: number;
-  let by = gy - legH;
-  let fy = gy - legH;
-  if (lg === 'stride') {
-    bl = bx - 4;
-    fl = bx + 1;
-  } else if (lg === 'lunge') {
-    bl = bx - 6;
-    fl = bx + 2;
-  } else if (lg === 'air') {
-    bl = bx - 4;
-    fl = bx + 1;
-    by -= 1;
-    fy -= 2;
-  } else {
-    bl = bx - 3;
-    fl = bx;
-  }
-  g.stamp(legH === 3 ? LEGBS : LEGB, bl, by, sw);
-
-  const sway = p.cape ?? 0;
-  for (let j = 0; j < 7; j++) {
-    const cw = 2 + Math.floor(j / 2);
-    const cx = tx + 1 - cw - (j > 2 ? sway : 0);
-    for (let i = 0; i < cw + 1; i++) {
-      const ch = j === 6 || i === 0 ? 'G' : 'Y';
-      g.set(cx + i, ty + j, PAL[sw[ch] ?? ch]);
-    }
-  }
-  g.stamp(TORSO, tx, ty, sw);
-  g.stamp(HEAD, bx - 4 + lean, ty - 8, sw);
-  g.stamp(legH === 3 ? LEGFS : LEGF, fl, fy, sw);
-
-  const sx = tx + 5;
-  const sy = ty + 2;
-  const hx = sx + (p.hx ?? 3);
-  const hy = sy + (p.hy ?? 4);
-  const a = ((p.sw ?? -55) * Math.PI) / 180;
-  const dx = Math.cos(a);
-  const dy = Math.sin(a);
-  const px = -dy;
-  const py = dx;
-  const wide = Math.abs(dx) > Math.abs(dy);
-  for (let t = 2; t <= 12; t++) {
-    const bxp = hx + dx * t;
-    const byp = hy + dy * t;
-    if (t < 12) {
-      if (wide) g.set(bxp, byp + 1, PAL.G);
-      else g.set(bxp + 1, byp, PAL.G);
-    }
-    g.set(bxp, byp, PAL.V);
-  }
-  g.set(hx - dx * 2, hy - dy * 2, PAL.b);
-  for (let q = -2; q <= 2; q++) g.set(hx + dx * 2 + px * q * 0.8, hy + dy * 2 + py * q * 0.8, PAL.b);
-  seg(g, sx, sy, hx, hy, PAL[sw.D ?? 'D'], 2);
-  g.set(hx, hy, PAL.V);
-  g.set(hx + 1, hy, PAL.V);
-  g.set(hx, hy + 1, PAL.V);
-  g.set(hx + 1, hy + 1, PAL.V);
-  if (p.flash) g.tint(PAL.H);
-  g.outline(PAL.K);
-  return { g, tip: { x: hx + dx * 12, y: hy + dy * 12 }, sh: { x: sx, y: sy }, hand: { x: hx, y: hy }, feet: { x: bx, y: gy } };
+  return heroBattle(p.hero ?? PARTY_LOOKS[p.look ?? 0] ?? PARTY_LOOKS[0], p);
 }
 
 export function heroLayers(p: HeroPose): Layer[] {
@@ -133,9 +73,23 @@ export function heroLayers(p: HeroPose): Layer[] {
     layers.push({ grid: f, alpha: alpha ?? 1 });
   }
   layers.push({ grid: body.g, alpha: 1 });
+  if (p.wash) {
+    const w = heroBody({ ...p, flash: false }).g;
+    w.tint(PAL[p.wash] ?? PAL.M);
+    layers.push({ grid: w, alpha: 0.55 });
+  }
   const fx = new Grid(HERO_W, HERO_H);
   if (p.spark) star(fx, body.tip.x, body.tip.y, p.spark, PAL.b, PAL.H);
   if (p.clang) star(fx, body.hand.x + 3, body.hand.y - 6, 4, PAL.Y, PAL.H);
+  if (p.glow) {
+    // Every other dot of a ring 4 px out, so the orb reads as gathering light, not a solid ball.
+    const col = PAL[p.glow] ?? PAL.G;
+    for (let k = 0; k < 24; k += 2) {
+      const a = (k / 24) * Math.PI * 2;
+      fx.set(body.tip.x + Math.cos(a) * 4.5, body.tip.y + Math.sin(a) * 4.5, col);
+    }
+  }
+  if (p.flare) star(fx, body.tip.x + 1, body.tip.y, 4, PAL.B, PAL.H);
   if (p.dust) {
     const { x, y } = body.feet;
     fx.set(x - 6, y - 1, PAL.C);
@@ -167,7 +121,8 @@ export type FoePose = {
   stars?: number;
   smear?: [number, number, number, number];
   look?: number;
-  kind?: 'shroomie' | 'butcher';
+  kind?: 'shroomie' | 'butcher' | 'boar';
+  down?: boolean; // knocked out (the boar draws its own collapse)
 };
 
 // Cap colors for a mixed pack of toadstools.
@@ -178,6 +133,7 @@ const STEM = ['.CVVVVVVVVC.', 'CVVVVVVVVVVC', 'CVKVVVKVVVVC', 'CVKVVVKVVVVC', 'C
 
 export function foeLayers(p: FoePose): Layer[] {
   if (p.kind === 'butcher') return butcherLayers(p);
+  if (p.kind === 'boar') return boarLayers(boarPoseOf(p));
   const g = new Grid(FOE_W, FOE_H);
   const bx = 36 + (p.x ?? 0);
   const gy = FOE_GROUND;
@@ -237,6 +193,7 @@ export function foeLayers(p: FoePose): Layer[] {
 // The Shroomie's head for the battle log and the new-critter card.
 export function foePortrait(kind: FoePose['kind'] = 'shroomie'): Grid {
   const g = new Grid(20, 20);
+  if (kind === 'boar') return boarPortrait();
   if (kind === 'butcher') {
     g.stamp(BUTCHER_BODY, 5, 13);
     g.stamp(BUTCHER_HEAD, 5, 5);
@@ -480,11 +437,4 @@ function butcherLayers(p: FoePose): Layer[] {
   }
   layers.push({ grid: fx, alpha: 1 });
   return layers;
-}
-
-export function heroPortrait(swap?: Record<string, string>): Grid {
-  const g = new Grid(12, 12);
-  g.stamp(HEAD, 1, 1, swap);
-  g.outline(PAL.K);
-  return g;
 }

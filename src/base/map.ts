@@ -1,3 +1,4 @@
+import { treeVariant, type TreeKind } from '../sprites/overworld';
 // Your base: a meadow lot with your cottage, a path, a pond, choppable trees, four Shroomies
 // and the old butcher's ruined hut. All positions are art pixels; the map is 26 x 36 tiles of 16 px.
 
@@ -21,8 +22,15 @@ export const POND = { x: 328, y: 316, rx: 36, ry: 22 };
 export const PATH: { x: number; y: number; w: number; h: number }[] = [
   { x: DOOR.x - 12, y: DOOR.y - 7, w: 24, h: 140 },
   { x: DOOR.x - 32, y: DOOR.y + 128, w: 64, h: 41 },
-  { x: DOOR.x + 30, y: DOOR.y + 138, w: 70, h: 21 },
+  // On east past the pond and out through the gap in the tree ring, to the Boar Woods.
+  { x: DOOR.x + 30, y: DOOR.y + 138, w: MAP_W - DOOR.x - 30, h: 21 },
 ];
+
+// The gap in the east tree ring where the path leaves for the Boar Woods: no border trees grow
+// with their trunks between y0 and y1, and walking past x into it takes you to the woods.
+export const EAST_GAP = { x: MAP_W - 10, y0: 206, y1: 290, walkY0: DOOR.y + 136, walkY1: DOOR.y + 161 };
+// The sign by the gap, with a boar head on its board. x, y = the foot of its post.
+export const SIGN = { x: MAP_W - 30, y: DOOR.y + 128 };
 
 export const TOAD_SPAWNS: Pt[] = [
   { x: 134, y: 244 },
@@ -38,6 +46,24 @@ export const HUT_BOX = { x: HUT.x + 3, y: HUT.y + 20, w: 40, h: 13 };
 export const BUTCHER = { x: HUT.x + 12, y: HUT.y + 50 };
 
 // A small seeded generator, so the lot looks the same every time it loads.
+// Autumn groves: the Boar Woods are dotted with golden, red and purple trees (the base stays green). Each patch
+// of ground leans toward one kind, so they gather in little groves instead of a random speckle.
+// Uses its own seed, so tree positions never move. `variant` is the tree's green shape (0-2).
+export function groveVariant(t: Pt & { variant: number }, seed: number, mix = 0.45): number {
+  const kinds: TreeKind[] = ['gold', 'red', 'purple'];
+  const hash = (n: number) => {
+    const v = Math.sin(n) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  // Patches take turns: green, gold, red, purple, shifted a step each row so neighbors differ.
+  const cell = (Math.floor(t.x / 120) + Math.floor(t.y / 100) * 3 + seed) % 4;
+  const grove = cell === 0 ? null : kinds[cell - 1];
+  const r = hash(seed * 7.13 + t.x * 1.731 + t.y * 3.917);
+  if (grove && r < mix + 0.15) return treeVariant(grove, t.variant);
+  if (r > 0.9) return treeVariant(kinds[Math.floor((r - 0.9) * 30) % 3], t.variant);
+  return t.variant;
+}
+
 export function rng(seed: number) {
   let x = seed;
   return () => {
@@ -87,7 +113,11 @@ export const TREES: TreeSpot[] = (() => {
       out.push({ id: id++, ...p, variant: Math.floor(rand() * 3), border: false });
     }
   }
-  return out;
+  // Clear the gap, then number the trees by their place in the list (the base indexes them by id).
+  return out
+    .filter((t) => !(t.border && t.x > MAP_W - 30 && t.y > EAST_GAP.y0 && t.y < EAST_GAP.y1))
+    .filter((t) => t.border || Math.hypot(t.x - SIGN.x, t.y - SIGN.y) > 18)
+    .map((t, i) => ({ ...t, id: i }));
 })();
 
 // Ground details, generated once: grass tufts, taller grass clumps, flowers and clover. Grass and

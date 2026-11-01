@@ -108,9 +108,36 @@ export const FOE = {
     [3, { x: 2, crouch: true, tilt: 2, ca: 170, hx: -3, hy: 4, stars: 1 }],
     [3, { x: 2, crouch: true, tilt: -1, ca: 170, hx: -3, hy: 4, stars: 2 }],
   ] as Frames<FoePose>,
-  down: { x: 2, crouch: true, tilt: -3, ca: 175, hx: -3, hy: 5 } as FoePose,
+  down: { x: 2, crouch: true, tilt: -3, ca: 175, hx: -3, hy: 5, down: true } as FoePose,
   happy: [
     [3, { capDy: -1, ca: -120 }],
     [3, { crouch: true, ca: -120 }],
   ] as Frames<FoePose>,
+};
+
+// Mage spells (storyboard sheet 3). The mage casts from where it stands: a crouch, the staff
+// rising overhead while the orb gathers light (glow), held through the glyph chain, then a one-tick
+// thrust with a flare at the orb in place of a smear, and a two-beat recovery.
+const MAGE_HOLD: HeroPose = { legs: 'stride', lean: -1, hx: 2, hy: -5, sw: -92, cape: 1 };
+const MAGE_RAISE: HeroPose = { legs: 'stand', hx: 2, hy: -6, sw: -90 };
+export const MAGE = {
+  // ticks: 2 for Ember Bolt, 3 for the bigger spells. raise: Mend lifts the staff straight up instead.
+  windup: (ticks: number, glow: string, raise = false): Frames<HeroPose> => [
+    [1, { crouch: true, legs: 'stride', lean: -1, hx: 1, hy: -1, sw: -85, glow: 'L' }],
+    [Math.max(1, ticks - 1), { ...(raise ? MAGE_RAISE : MAGE_HOLD), glow }],
+  ],
+  hold: (glow: string, raise = false): HeroPose => ({ ...(raise ? MAGE_RAISE : MAGE_HOLD), glow }),
+  cast: [[1, { x: 3, legs: 'lunge', lean: 2, hx: 6, hy: 2, sw: -8, flare: true }]] as Frames<HeroPose>,
+  castHold: { x: 3, legs: 'lunge', lean: 2, hx: 6, hy: 2, sw: -8 } as HeroPose,
+  release: [[1, { ...MAGE_RAISE, y: -1, flare: true }]] as Frames<HeroPose>,
+  recover: [
+    [2, { x: 2, legs: 'stride', crouch: true, hx: 4, hy: 3, sw: -30 }],
+    [2, { x: 1, legs: 'stride', sw: -50 }],
+  ] as Frames<HeroPose>,
+  // Healed ally: a mint wash while the motes rise.
+  healed: [
+    [1, { legs: 'stride', sw: -95, hx: 2, hy: -5, wash: 'M' }],
+    [2, { legs: 'stride', sw: -95, hx: 2, hy: -5, wash: 'M' }],
+    [2, { legs: 'stride', sw: -80, hx: 2, hy: -3 }],
+  ] as Frames<HeroPose>,
 };

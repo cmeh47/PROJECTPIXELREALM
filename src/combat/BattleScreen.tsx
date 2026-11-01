@@ -5,12 +5,29 @@ import { GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { foePortrait, HERO_LOOKS, heroPortrait, type FoePose, type HeroPose } from '../sprites/characters';
-import { gridPicture } from '../sprites/render';
+import { foePortrait, type FoePose, type HeroPose } from '../sprites/characters';
+import { DEFAULT_LOOK, heroBattle, heroFace, PARTY_LOOKS, type HeroClass, type HeroLook } from '../sprites/hero';
+import type { Hero } from '../net/useHero';
+import { fxPicture, gridPicture } from '../sprites/render';
+import { boltFx, burstFx, EMBER_C, emberGrid, lanceFx, motesFx, type FxGrid, type Pt } from '../sprites/spells';
 import { colors } from '../theme';
 import { Chip, Framed, haptic, PixelButton, PixelIcon, SegBar, styles as t } from '../ui/pixel';
-import { FOE, HERO, TICK, type Frames } from './anims';
-import { BattleScene, foeFrame, type Actor, type RuneFx } from './BattleScene';
+import { FOE, HERO, MAGE, TICK, type Frames } from './anims';
+import {
+  BattleScene,
+  foeFrame,
+  G_HIDDEN,
+  G_LIT,
+  G_LIVE,
+  G_MISSED,
+  G_NEXT,
+  GLYPH_MAX,
+  heroFrame,
+  type Actor,
+  type FxItem,
+  type GlyphFx,
+  type RuneFx,
+} from './BattleScene';
 import { fieldLayout, type Field } from './field';
 import { PopText, type Pop } from './Pops';
 import {
@@ -22,6 +39,7 @@ import {
   COUNTER_BREAK,
   COUNTER_DAMAGE,
   ECHO_DEFENSE,
+  ECHO_SPELL,
   ECHO_STRIKE,
   echoGrade,
   ENEMY_HIT,
@@ -31,13 +49,21 @@ import {
   FOE_MAX_HP,
   GRADE_BREAK,
   GRADE_MULT,
-  HERO_MAX_HP,
+  hitOn,
+  maxHpOf,
   MOVES,
   PATTERNS,
+  powerMult,
   rand,
+  SHATTER_BREAK,
+  SHATTER_DAMAGE,
+  SPELLS,
+  statsOf,
   tameChance,
   type Grade,
   type Move,
+  type Spell,
+  type Stats,
 } from './rules';
 import { useCombatInput } from './useCombatInput';
 
@@ -45,8 +71,8 @@ type Phase = 'menu' | 'moves' | 'tame' | 'flee' | 'acting' | 'won' | 'lost' | 't
 
 // Battle state lives in a ref and is mutated by the async combat sequences; force() repaints.
 // pose === null means "breathe with the shared idle beat".
-type HeroState = { name: string; look: number; hp: number; pose: HeroPose | null; z?: number };
-type FoeState = { name: string; look: number; kind?: FoePose['kind']; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
+type HeroState = { name: string; look: HeroLook; stats: Stats; maxHp: number; hp: number; pose: HeroPose | null; z?: number };
+type FoeState = { name: string; look: number; kind?: FoePose['kind']; maxHp: number; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
 type Game = { heroes: HeroState[]; foes: FoeState[] };
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -57,14 +83,34 @@ const MELEE_REACH = 28;
 const FOE_REACH = 36;
 // The command dock keeps one height in every phase, so the scene never jumps.
 const PANEL_H = 214;
+// Glyphs are hit-tested within this many points of their centre (DESIGN.md asks 56 pt targets).
+const GLYPH_RADIUS = 40;
+// The orb's glow and its effects take each spell's colour (palette keys).
+const SPELL_GLOW: Record<Spell['fx'], string> = { ember: 'G', frost: 'Y', arc: 'B', mend: 'M' };
+// A warrior swings moves with strike runes; a mage casts spells with glyph chains.
+type Action = Move | Spell;
+const isSpell = (a: Action): a is Spell => 'glyphs' in a;
 
 const HERO_NAMES = ['You', 'Mint Ranger', 'Gold Warden', 'Sky Mage'];
 const FOE_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie'];
 
-export type Encounter = { look: number; name: string; kind?: FoePose['kind'] };
+// dizzy: the boar charged past you on the map and opens the fight Broken.
+export type Encounter = { look: number; name: string; kind?: FoePose['kind']; dizzy?: boolean };
+// A boar is a quick hunt: less health than a Shroomie, and it can't be tamed.
+const BOAR_MAX_HP = 80;
 
 // Lines that change with who you're fighting: a toadstool and its club, or the old butcher.
 function foeCopy(kind: FoePose['kind']) {
+  if (kind === 'boar')
+    return {
+      intro: (name: string) => `A ${name} snorts and lowers its tusks.`,
+      tell: (name: string) => `The ${name} paws the ground!`,
+      win: 'The boar slumps over. Victory!',
+      broken: 'The boar is Broken! It staggers, dizzy. Hit it hard.',
+      steady: 'The boar shakes its head and snorts. Your turn.',
+      block: 'The boar blocks your way!',
+      lost: 'The boar wins this round. Parry as the tusks reach your blade.',
+    };
   return kind === 'butcher'
     ? {
         intro: (name: string) => `The ${name} raises his cleaver. He won't back down.`,
@@ -86,20 +132,42 @@ function foeCopy(kind: FoePose['kind']) {
       };
 }
 export type BattleResult = 'won' | 'lost' | 'tamed' | 'fled';
+// perfect: the finishing hit was graded Perfect (a boar then drops two meat).
+export type BattleInfo = { perfect: boolean };
 
-function newGame(full: boolean, encounter?: Encounter): Game {
-  const heroes = (full ? [0, 1, 2, 3] : [0]).map((i) => ({ name: HERO_NAMES[i], look: i, hp: HERO_MAX_HP, pose: null }));
-  const foes = (full ? [0, 1, 2] : [0]).map((j) => ({ name: FOE_NAMES[j], look: j, hp: FOE_MAX_HP, brk: 0, broken: false, out: null, pose: null }));
-  if (encounter && !full) Object.assign(foes[0], encounter);
+function newGame(full: boolean, encounter?: Encounter, you?: Hero): Game {
+  const heroes = (full ? [0, 1, 2, 3] : [0]).map((i) => {
+    const look = i === 0 ? (you?.look ?? DEFAULT_LOOK) : PARTY_LOOKS[i];
+    const stats = statsOf(look.cls);
+    const maxHp = maxHpOf(stats);
+    return { name: HERO_NAMES[i], look, stats, maxHp, hp: maxHp, pose: null };
+  });
+  const foes: FoeState[] = (full ? [0, 1, 2] : [0]).map((j) => ({ name: FOE_NAMES[j], look: j, maxHp: FOE_MAX_HP, hp: FOE_MAX_HP, brk: 0, broken: false, out: null, pose: null }));
+  if (encounter && !full) {
+    const { dizzy, ...who } = encounter;
+    Object.assign(foes[0], who);
+    if (encounter.kind === 'boar') foes[0].maxHp = foes[0].hp = BOAR_MAX_HP;
+    if (dizzy) {
+      foes[0].broken = true;
+      foes[0].brk = BREAK_MAX;
+    }
+  }
   return { heroes, foes };
 }
 
 const active = (g: Game) => g.foes.map((f, j) => (f.out ? -1 : j)).filter((j) => j >= 0);
 const standing = (g: Game) => g.heroes.map((h, i) => (h.hp > 0 ? i : -1)).filter((i) => i >= 0);
+// SPD decides who acts first in a group round. Allies quicker than you act before your move;
+// on a tie you go first. Faster first within each group.
+const bySpeed = (g: Game) => (a: number, b: number) => g.heroes[b].stats.spd - g.heroes[a].stats.spd;
+const quicker = (g: Game) => standing(g).filter((i) => i > 0 && g.heroes[i].stats.spd > g.heroes[0].stats.spd).sort(bySpeed(g));
+// The party member Mend goes to: the lowest share of HP left, you on a tie.
+const mostHurt = (g: Game) =>
+  standing(g).reduce((best, i) => (g.heroes[i].hp / g.heroes[i].maxHp < g.heroes[best].hp / g.heroes[best].maxHp ? i : best), standing(g)[0] ?? 0);
 
 // encounter: a fight started on the base map against one Shroomie or the butcher; onDone hands the result back.
 // Without an encounter it is the practice arena, with the SOLO / PARTY 4 toggle and onExit.
-export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encounter; onDone?: (r: BattleResult) => void; onExit?: () => void } = {}) {
+export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: Encounter; you?: Hero; onDone?: (r: BattleResult, info: BattleInfo) => void; onExit?: () => void } = {}) {
   const insets = useSafeAreaInsets();
 
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
@@ -108,7 +176,10 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   const fieldRef = useRef<Field | null>(field);
   fieldRef.current = field;
 
-  const game = useRef<Game>(newGame(false, encounter));
+  // The practice arena can swap your class to try both: your look, the other class's gear.
+  const [cls, setCls] = useState<HeroClass | null>(null);
+  const youAs = (c: HeroClass | null): Hero | undefined => (c ? { name: you?.name ?? 'You', look: { ...(you?.look ?? DEFAULT_LOOK), cls: c } } : you);
+  const game = useRef<Game>(newGame(false, encounter, you));
   const [, force] = useReducer((x: number) => x + 1, 0);
 
   const [phase, setPhase] = useState<Phase>('menu');
@@ -122,7 +193,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   const [hint, setHint] = useState('');
   const kind = encounter?.kind ?? 'shroomie';
   const copy = foeCopy(kind);
-  const [line, setLine] = useState(copy.intro(encounter?.name ?? 'Mossback Shroomie'));
+  const [line, setLine] = useState(encounter?.dizzy ? `The ${encounter.name} skidded past you and is dizzy. Strike now!` : copy.intro(encounter?.name ?? 'Mossback Shroomie'));
   const [pops, setPops] = useState<Pop[]>([]);
   const [sel, setSel] = useState(0);
   const [treat, setTreat] = useState(false);
@@ -150,6 +221,35 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     decoyX: useSharedValue(0),
     decoyY: useSharedValue(0),
   };
+  const glyphs: GlyphFx = {
+    x: [useSharedValue(0), useSharedValue(0), useSharedValue(0), useSharedValue(0)],
+    y: [useSharedValue(0), useSharedValue(0), useSharedValue(0), useSharedValue(0)],
+    state: [useSharedValue(0), useSharedValue(0), useSharedValue(0), useSharedValue(0)],
+    ring: useSharedValue(16),
+    ringX: useSharedValue(0),
+    ringY: useSharedValue(0),
+    ringOn: useSharedValue(0),
+  };
+  const clearGlyphs = () => {
+    glyphs.ringOn.value = 0;
+    glyphs.state.forEach((v) => {
+      v.value = G_HIDDEN;
+    });
+  };
+  // Spell effects: frames placed in the field, and one projectile offset that flies at 60 fps.
+  const [fx, setFx] = useState<FxItem[]>([]);
+  const shotDx = useSharedValue(0);
+  const shotDy = useSharedValue(0);
+  const fxId = useRef(0);
+  const showFx = useCallback((f: FxGrid, moving = false) => {
+    const s = fieldRef.current?.s ?? 1;
+    fxId.current += 1;
+    const item: FxItem = { key: `fx${fxId.current}`, pic: fxPicture(f.grid, s), x: f.x, y: f.y, ...(moving ? { dx: shotDx, dy: shotDy } : null) };
+    setFx((xs) => [...xs, item]);
+    return item.key;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const dropFx = useCallback((key?: string) => setFx((xs) => (key ? xs.filter((x) => x.key !== key) : [])), []);
 
   // The scene's top-left in window coordinates; runes are hit-tested against absolute touch points.
   const sceneOrigin = useRef({ x: 0, y: 0 });
@@ -255,6 +355,24 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     fdy[j].value = withTiming(to.dy, { duration, easing });
   };
 
+  // Where hero i's staff orb is for a pose, in field art pixels.
+  const orbAt = (i: number, pose: HeroPose): Pt => {
+    const f = fieldRef.current!;
+    const fr = heroFrame(f.heroes[i]);
+    const tip = heroBattle(game.current.heroes[i].look, pose).tip;
+    return { x: fr.x + hdx[i].value + tip.x, y: fr.y + hdy[i].value + tip.y };
+  };
+  // The middle of a foe's body, where spells land.
+  const foeCore = (j: number): Pt => {
+    const p = geo().foe(j);
+    return { x: p.x - 2, y: p.y - 14 };
+  };
+  // Shows an effect frame for a while without holding up the sequence.
+  const flashFx = (f: FxGrid, ms: number) => {
+    const key = showFx(f);
+    setTimeout(() => dropFx(key), ms);
+  };
+
   const apRef = useRef(ap);
   apRef.current = ap;
   const gainAp = useCallback(
@@ -266,6 +384,10 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     [pop],
   );
 
+  // The grade of the hit being dealt right now, if it was your own timed strike or spell, so a
+  // boar knows whether the finishing hit was Perfect.
+  const lastGrade = useRef<Grade | null>(null);
+  const finalPerfect = useRef(false);
   const dealDamage = useCallback((j: number, dmg: number, brkGain: number) => {
     const f = game.current.foes[j];
     const real = Math.round(dmg * (f.broken ? 1.5 : 1));
@@ -280,12 +402,59 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     }
     const dead = f.hp <= 0;
     if (dead) {
+      finalPerfect.current = lastGrade.current === 'perfect';
       f.out = 'down';
       f.pose = null;
     }
     force();
     return { real, justBroke, dead };
   }, []);
+
+  // A spell landing on foe j: the damage, a hit flash and the pops.
+  const spellHit = (j: number, dmg: number, brk: number) => {
+    const g = geo();
+    const res = dealDamage(j, dmg, brk);
+    if (!res.dead) setFoePose(j, FOE.hurt[0][1]);
+    const fb = g.foe(j);
+    pop(`-${res.real}`, colors.hpRose, fb.x + 6, g.above(fb, 38));
+    if (res.justBroke) {
+      pop('BREAK!', colors.rose, fb.x + 4, g.above(fb, 60), { big: true });
+      haptic('heavy');
+    }
+    return res;
+  };
+
+  // The cast itself, after the wind-up: the one-tick thrust (or Mend's release) and the spell
+  // travelling to `to`. Resolves on the tick it lands.
+  const castAt = async (i: number, kind: Spell['fx'], to: Pt) => {
+    const castPose = (kind === 'mend' ? MAGE.release : MAGE.cast)[0][1];
+    const orb = orbAt(i, castPose);
+    setHeroPose(i, castPose);
+    if (kind === 'ember') {
+      shotDx.value = 0;
+      shotDy.value = 0;
+      const key = showFx({ grid: emberGrid(), x: Math.round(orb.x) + 2 - EMBER_C.x, y: Math.round(orb.y) - EMBER_C.y }, true);
+      shotDx.value = withTiming(to.x - orb.x - 2, { duration: TICK * 2, easing: Easing.in(Easing.quad) });
+      shotDy.value = withTiming(to.y - orb.y, { duration: TICK * 2, easing: Easing.in(Easing.quad) });
+      await wait(TICK);
+      setHeroPose(i, MAGE.castHold);
+      await wait(TICK);
+      dropFx(key);
+    } else if (kind === 'frost') {
+      const key = showFx(lanceFx({ x: orb.x + 3, y: orb.y }, to));
+      await wait(TICK);
+      setHeroPose(i, MAGE.castHold);
+      await wait(TICK);
+      dropFx(key);
+    } else if (kind === 'arc') {
+      const key = showFx(boltFx(orb, to, 3));
+      await wait(TICK);
+      setHeroPose(i, MAGE.castHold);
+      dropFx(key);
+    } else {
+      await wait(TICK);
+    }
+  };
 
   const hurtHero = useCallback((i: number, dmg: number) => {
     const h = game.current.heroes[i];
@@ -346,8 +515,9 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
             await playHero(i, HERO.dodge.slice(0, 3));
           } else {
             doShake(2);
-            const down = hurtHero(i, ENEMY_HIT);
-            pop(`-${ENEMY_HIT}`, colors.hpRose, at.x, at.y);
+            const dmg = hitOn(ENEMY_HIT, g0.heroes[i].stats);
+            const down = hurtHero(i, dmg);
+            pop(`-${dmg}`, colors.hpRose, at.x, at.y);
             await playHero(i, HERO.hurt);
             if (down) pop('DOWN', colors.inkSoft, at.x, at.y - 12);
           }
@@ -395,8 +565,9 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         } else {
           haptic('warning');
           doShake(4);
-          const down = hurtHero(0, ENEMY_HIT);
-          pop(`-${ENEMY_HIT}`, colors.hpRose, at.x, at.y, { big: true });
+          const dmg = hitOn(ENEMY_HIT, g0.heroes[0].stats);
+          const down = hurtHero(0, dmg);
+          pop(`-${dmg}`, colors.hpRose, at.x, at.y, { big: true });
           await playHero(0, HERO.hurt);
           if (down) break;
         }
@@ -412,7 +583,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         const counter = playHero(0, HERO.counter);
         await wait(TICK * 2);
         haptic('heavy');
-        const r = dealDamage(j, COUNTER_DAMAGE, COUNTER_BREAK);
+        const r = dealDamage(j, COUNTER_DAMAGE * powerMult(g0.heroes[0].stats.str), COUNTER_BREAK);
         await wait(TICK);
         if (!r.dead) setFoePose(j, FOE.hurt[0][1]);
         doShake(5);
@@ -445,8 +616,35 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
       if (!targets.length) return;
       const j = pick(targets);
       setFocus(j);
-      setLine(`The ${g0.heroes[i].name} strikes the ${g0.foes[j].name}!`);
       setHint('');
+      if (g0.heroes[i].look.cls === 'mage') {
+        // A mage Echo casts Frost Lance from where it stands, its glyphs rolled.
+        setLine(`The ${g0.heroes[i].name} casts Frost Lance at the ${g0.foes[j].name}!`);
+        await playHero(i, MAGE.windup(3, 'Y'));
+        setHeroPose(i, MAGE.hold('Y'));
+        await wait(rand(380, 640));
+        const grades = Array.from({ length: ECHO_SPELL.glyphs }, () => echoGrade());
+        const at = foeCore(j);
+        await castAt(i, 'frost', at);
+        const power = powerMult(g0.heroes[i].stats.mag);
+        const r = spellHit(
+          j,
+          grades.reduce((a, gr) => a + ECHO_SPELL.damage * GRADE_MULT[gr], 0) * power,
+          grades.reduce((a, gr) => a + ECHO_SPELL.brk * GRADE_BREAK[gr], 0),
+        );
+        flashFx(burstFx('frost', at), TICK * 3);
+        const best: Grade = grades.includes('perfect') ? 'perfect' : grades.includes('good') ? 'good' : 'miss';
+        const fb = g.foe(j);
+        pop(best === 'perfect' ? 'PERFECT' : best === 'good' ? 'GOOD' : 'MISS', best === 'perfect' ? colors.butter : best === 'good' ? colors.mint : colors.lavender, fb.x - 12, g.above(fb, 52));
+        if (best === 'perfect') doShake(2);
+        await playHero(i, MAGE.recover);
+        if (!r.dead) await playFoe(j, FOE.hurt.slice(1));
+        setHeroPose(i, null);
+        setFoePose(j, null);
+        setFocus(null);
+        return;
+      }
+      setLine(`The ${g0.heroes[i].name} strikes the ${g0.foes[j].name}!`);
       g0.heroes[i].z = g.f.foes[j].y + 0.5;
       await playHero(i, HERO.dash.slice(0, 1));
       moveHero(i, g.dashTo(i, j), TICK * 2);
@@ -457,7 +655,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         const grade: Grade = echoGrade();
         const slash = playHero(i, grade === 'miss' ? HERO.weakSlash : HERO.slash);
         await wait(TICK);
-        const r = dealDamage(j, ECHO_STRIKE.damage * GRADE_MULT[grade], ECHO_STRIKE.brk * GRADE_BREAK[grade]);
+        const r = dealDamage(j, ECHO_STRIKE.damage * GRADE_MULT[grade] * powerMult(g0.heroes[i].stats.str), ECHO_STRIKE.brk * GRADE_BREAK[grade]);
         const fb = g.foe(j);
         if (!r.dead) setFoePose(j, FOE.hurt[0][1]);
         if (grade === 'perfect') doShake(2);
@@ -492,11 +690,15 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
   }, []);
 
   // ---------- The rest of the round: allies, then every enemy ----------
-  const restOfRound = useCallback(async () => {
+  // acted: allies who already went this round because they are quicker than you.
+  const restOfRound = useCallback(async (acted: number[] = []) => {
     const g0 = game.current;
     const done = () => finish('won');
     retarget();
-    for (let i = 1; i < g0.heroes.length; i++) {
+    const order = standing(g0)
+      .filter((i) => i > 0 && !acted.includes(i))
+      .sort(bySpeed(g0));
+    for (const i of order) {
       if (!alive.current) return;
       if (!active(g0).length) break;
       if (g0.heroes[i].hp <= 0) continue;
@@ -617,7 +819,9 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         const strong = grade === 'perfect' || grade === 'good';
         const slash = playHero(0, strong ? HERO.slash : HERO.weakSlash);
         await wait(TICK);
-        const res = dealDamage(j, move.damage * GRADE_MULT[grade], move.brk * GRADE_BREAK[grade]);
+        lastGrade.current = grade;
+        const res = dealDamage(j, move.damage * GRADE_MULT[grade] * powerMult(g0.heroes[0].stats.str), move.brk * GRADE_BREAK[grade]);
+        lastGrade.current = null;
         if (!res.dead) setFoePose(j, FOE.hurt[0][1]);
         const fb = g.foe(j);
         const you = g.hero(0);
@@ -653,7 +857,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         setHint('Chain x3: finisher!');
         const fin = playHero(0, HERO.finisher);
         await wait(TICK * 3);
-        const res = dealDamage(j, FINISHER_DAMAGE, FINISHER_BREAK);
+        const res = dealDamage(j, FINISHER_DAMAGE * powerMult(g0.heroes[0].stats.str), FINISHER_BREAK);
         if (!res.dead) setFoePose(j, FOE.hurt[0][1]);
         haptic('heavy');
         doShake(5);
@@ -671,10 +875,170 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
       g0.heroes[0].z = undefined;
       setFoePose(j, null);
       setFocus(null);
-      await restOfRound();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [armRune, dealDamage, doShake, gainAp, geo, measureScene, playFoe, playHero, pop, restOfRound, rune, setFoePose, setHeroPose],
+    [armRune, dealDamage, doShake, gainAp, geo, measureScene, playFoe, playHero, pop, rune, setFoePose, setHeroPose],
+  );
+
+  // ---------- Your turn as a mage: a spell cast with a glyph chain ----------
+  const runSpell = useCallback(
+    async (spell: Spell, j: number) => {
+      measureScene();
+      const g = geo();
+      const g0 = game.current;
+      const me = g0.heroes[0];
+      const glow = SPELL_GLOW[spell.fx];
+      const raise = !!spell.heal;
+      const ally = spell.heal ? mostHurt(g0) : -1;
+      // Arc Chain jumps to the nearest other foe still standing; alone, it stays on the one.
+      const others = active(g0).filter((k) => k !== j);
+      others.sort((a, b) => Math.abs(g.foe(a).y - g.foe(j).y) - Math.abs(g.foe(b).y - g.foe(j).y));
+      const j2 = others[0] ?? j;
+      setFocus(spell.heal ? null : j);
+      setAp((a) => Math.min(AP_MAX, a - spell.cost));
+      setLine(spell.heal ? `You cast Mend on ${ally === 0 ? 'yourself' : `the ${g0.heroes[ally].name}`}!` : `You cast ${spell.name}!`);
+      setHint('Tap each glyph in order as its ring closes.');
+      setChain(0);
+
+      await playHero(0, MAGE.windup(spell.windTicks, glow, raise));
+      setHeroPose(0, MAGE.hold(glow, raise));
+
+      // Glyphs are authored inside the target's frame: a foe's, or the healed ally's.
+      const frameOf = (tj: number) => {
+        if (spell.heal) {
+          const fr = heroFrame(g.f.heroes[tj]);
+          return { x: fr.x + hdx[tj].value, y: fr.y + hdy[tj].value };
+        }
+        const fr = foeFrame(g.f.foes[tj]);
+        return { x: fr.x + fdx[tj].value, y: fr.y + fdy[tj].value };
+      };
+      const pts = spell.glyphs.slice(0, GLYPH_MAX).map((gs) => {
+        const tj = spell.heal ? ally : gs.next ? j2 : j;
+        const fr = frameOf(tj);
+        const [x, y] = gs.next && j2 === j && gs.solo ? gs.solo : [gs.x, gs.y];
+        return { x: fr.x + x, y: fr.y + y, tj };
+      });
+      pts.forEach((p, k) => {
+        glyphs.x[k].value = p.x;
+        glyphs.y[k].value = p.y;
+        glyphs.state[k].value = G_NEXT;
+      });
+      await wait(360); // a beat to read the path before the first ring
+
+      const grades: Grade[] = [];
+      let perfects = 0;
+      const you = g.hero(0);
+      for (let k = 0; k < pts.length; k++) {
+        if (!alive.current) return;
+        const gs = spell.glyphs[k];
+        const p = pts[k];
+        glyphs.state[k].value = G_LIVE;
+        glyphs.ringX.value = p.x;
+        glyphs.ringY.value = p.y;
+        glyphs.ring.value = 15;
+        glyphs.ring.value = withTiming(6, { duration: gs.delay, easing: Easing.linear });
+        glyphs.ringOn.value = 1;
+        const v = await armRune(gs.delay, { ...g.toScreen(p.x, p.y), radius: GLYPH_RADIUS });
+        glyphs.ringOn.value = 0;
+        const grade = v.grade;
+        grades.push(grade);
+        const sub = v.dt != null ? `${v.dt > 0 ? '+' : ''}${Math.round(v.dt)} MS` : undefined;
+        if (grade === 'perfect') {
+          perfects += 1;
+          setChain(perfects);
+          glyphs.state[k].value = G_LIT;
+          haptic('heavy');
+          doShake(1);
+          pop('PERFECT', colors.butter, p.x, p.y - 10, { sub });
+          gainAp(AP_PERFECT, you.x + 4, g.above(you, 46));
+          await wait(80); // hit-stop
+        } else if (grade === 'good') {
+          setChain(0);
+          glyphs.state[k].value = G_LIT;
+          haptic('light');
+          pop('GOOD', colors.mint, p.x, p.y - 10, { sub });
+        } else {
+          setChain(0);
+          glyphs.state[k].value = G_MISSED;
+          pop(grade === 'early' ? 'TOO EARLY' : 'MISS', colors.lavender, p.x, p.y - 10, { sub });
+        }
+        await wait(rand(100, 200));
+      }
+      if (!alive.current) return;
+      setHint('');
+
+      // Each glyph adds its grade's share; MAG scales the lot.
+      const power = powerMult(me.stats.mag);
+      const sumOn = (tj: number, per: number, table: Record<Grade, number>) =>
+        pts.reduce((a, p, k) => (p.tj === tj ? a + per * table[grades[k]] : a), 0);
+
+      if (spell.heal) {
+        const h = g0.heroes[ally];
+        const hp = g.hero(ally);
+        const heal = Math.max(1, Math.round(sumOn(ally, spell.damage, GRADE_MULT) * power));
+        const cast = castAt(0, 'mend', hp);
+        clearGlyphs();
+        shotDx.value = 0;
+        shotDy.value = 0;
+        const key = showFx(motesFx({ x: hp.x, y: hp.y - 14 }), true);
+        shotDy.value = withTiming(-6, { duration: TICK * 6, easing: Easing.linear });
+        await cast;
+        const gained = Math.min(h.maxHp, h.hp + heal) - h.hp;
+        h.hp += gained;
+        force();
+        haptic('success');
+        pop(gained > 0 ? `+${gained}` : 'FULL HP', colors.questGreen, hp.x, g.above(hp, 44), { big: true });
+        if (ally !== 0) void playHero(0, MAGE.recover);
+        await playHero(ally, MAGE.healed);
+        dropFx(key);
+        if (ally === 0) await playHero(0, MAGE.recover.slice(1));
+        setHeroPose(ally, null);
+      } else {
+        const at = foeCore(j);
+        clearGlyphs();
+        await castAt(0, spell.fx, at);
+        lastGrade.current = perfects === pts.length ? 'perfect' : 'good';
+        let res = spellHit(j, sumOn(j, spell.damage, GRADE_MULT) * power, sumOn(j, spell.brk, GRADE_BREAK));
+        lastGrade.current = null;
+        flashFx(burstFx(spell.fx === 'ember' ? 'ember' : spell.fx === 'arc' ? 'arc' : 'frost', at), TICK * 3);
+        doShake(perfects === pts.length ? 3 : 2);
+        if (spell.fx === 'arc' && j2 !== j && !g0.foes[j2].out) {
+          // The bolt leaps on to the second foe with the glyphs that sat on it.
+          await wait(TICK);
+          const at2 = foeCore(j2);
+          const key = showFx(boltFx(at, at2, 7));
+          await wait(TICK);
+          dropFx(key);
+          const r2 = spellHit(j2, sumOn(j2, spell.damage, GRADE_MULT) * power, sumOn(j2, spell.brk, GRADE_BREAK));
+          flashFx(burstFx('arc', at2), TICK * 2);
+          if (!r2.dead) void playFoe(j2, FOE.hurt.slice(1)).then(() => setFoePose(j2, null));
+        }
+        if (spell.shatter && perfects === pts.length && !g0.foes[j].out) {
+          // Every glyph Perfect: the frost shatters for bonus Break.
+          setHint('Every glyph Perfect: shatter!');
+          await wait(TICK * 2);
+          res = dealDamage(j, SHATTER_DAMAGE * power, SHATTER_BREAK);
+          if (!res.dead) setFoePose(j, FOE.hurt[0][1]);
+          haptic('heavy');
+          doShake(5);
+          flashFx(burstFx('shatter', at), TICK * 3);
+          const fb = g.foe(j);
+          pop('SHATTER', colors.manaBlue, fb.x - 20, g.above(fb, 54), { big: true });
+          pop(`-${res.real}`, colors.hpRose, fb.x + 8, g.above(fb, 38));
+          if (res.justBroke) pop('BREAK!', colors.rose, fb.x + 8, g.above(fb, 60), { big: true });
+        }
+        const rec = playHero(0, MAGE.recover);
+        if (!g0.foes[j].out) await playFoe(j, FOE.hurt.slice(1));
+        await rec;
+        if (!g0.foes[j].out && g0.foes[j].broken) await playFoe(j, FOE.stagger.slice(0, 1));
+      }
+      clearGlyphs();
+      setHeroPose(0, null);
+      if (!spell.heal) setFoePose(j, null);
+      setFocus(null);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [armRune, dealDamage, doShake, gainAp, geo, measureScene, playFoe, playHero, pop, setFoePose, setHeroPose, showFx, dropFx],
   );
 
   // ---------- Tame and flee ----------
@@ -722,18 +1086,46 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
         }
         setFocus(null);
         finish('tamed');
-        return;
-      } else {
-        pop('IT SHOOK FREE', colors.rose, fp.x - 6, g.above(fp, 54));
-        setLine('It shook free!');
-        setFoePose(j, null);
-        await wait(500);
+        return true;
       }
+      pop('IT SHOOK FREE', colors.rose, fp.x - 6, g.above(fp, 54));
+      setLine('It shook free!');
+      setFoePose(j, null);
+      await wait(500);
       setFocus(null);
-      await restOfRound();
+      return false;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [chance, finish, geo, playFoe, playHero, pop, restOfRound, setFoePose, setHeroPose, treat, treats],
+    [chance, finish, geo, playFoe, playHero, pop, setFoePose, setHeroPose, treat, treats],
+  );
+
+  // ---------- A round: quicker allies, then you, then everyone else ----------
+  const targetRef = useRef(target);
+  targetRef.current = target;
+  const takeTurn = useCallback(
+    async (act: (j: number) => Promise<boolean | void>) => {
+      setPhase('acting');
+      const g0 = game.current;
+      const first = quicker(g0);
+      for (const i of first) {
+        if (!alive.current) return;
+        if (!active(g0).length) break;
+        await allyAct(i);
+        retarget();
+      }
+      if (!alive.current) return;
+      if (!active(g0).length) {
+        finish('won');
+        return;
+      }
+      // Your target may have gone down to a quicker ally: aim at the next one standing.
+      const live = active(g0);
+      const j = live.includes(targetRef.current) ? targetRef.current : live[0];
+      const over = await act(j);
+      if (over || !alive.current) return;
+      await restOfRound(first);
+    },
+    [allyAct, finish, restOfRound, retarget],
   );
 
   const tryFlee = useCallback(async () => {
@@ -755,18 +1147,21 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     pop("CAN'T ESCAPE", colors.rose, you.x + 6, g.above(you, 48));
     setLine(copy.block);
     await wait(500);
-    await restOfRound();
+    await restOfRound([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo, pop, restOfRound, setHeroPose]);
 
   const reset = useCallback(
-    (nextFull: boolean) => {
+    (nextFull: boolean, nextCls: HeroClass | null = cls) => {
       disarm();
       [...hdx, ...hdy, ...fdx, ...fdy].forEach((v) => {
         v.value = 0;
       });
       rune.visible.value = 0;
-      game.current = newGame(nextFull, encounter);
+      clearGlyphs();
+      dropFx();
+      setSel(0);
+      game.current = newGame(nextFull, encounter, youAs(nextCls));
       tamedRef.current = 0;
       setTarget(0);
       setFocus(null);
@@ -784,13 +1179,18 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
       force();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [disarm],
+    [disarm, cls],
   );
 
   const toggleParty = () => {
     const next = !full;
     setFull(next);
     reset(next);
+  };
+  const toggleClass = () => {
+    const next: HeroClass = game.current.heroes[0].look.cls === 'mage' ? 'warrior' : 'mage';
+    setCls(next);
+    reset(full, next);
   };
 
   // ---------- The field ----------
@@ -801,7 +1201,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
       const b = (beat + i) % 4;
       const idlePose: HeroPose =
         h.hp <= 0 ? HERO.down : cheer ? HERO.cheer[b % 2][1] : b % 2 === 0 ? HERO.ready : { ...HERO.ready, crouch: true, hy: 5 };
-      actors.push({ kind: 'hero', key: `h${i}`, slot: field.heroes[i], z: h.z, pose: { ...(h.pose ?? idlePose), look: h.look }, dx: hdx[i], dy: hdy[i] });
+      actors.push({ kind: 'hero', key: `h${i}`, slot: field.heroes[i], z: h.z, pose: { ...(h.pose ?? idlePose), hero: h.look }, dx: hdx[i], dy: hdy[i] });
     });
     g0.foes.forEach((f, j) => {
       const idlePose: FoePose =
@@ -810,8 +1210,11 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     });
   }
 
-  const move = MOVES[sel];
-  const canUse = (m: Move) => m.cost <= ap;
+  const mage = g0.heroes[0].look.cls === 'mage';
+  const actions: Action[] = mage ? SPELLS : MOVES;
+  const move = actions[sel] ?? actions[0];
+  const canUse = (m: Action) => m.cost <= ap;
+  const healFor = g0.heroes[mostHurt(g0)];
   const ended = phase === 'won' || phase === 'lost' || phase === 'tamed' || phase === 'fled';
   const choosing = phase === 'menu' || phase === 'moves' || phase === 'tame';
   const party = g0.heroes.length > 1;
@@ -832,6 +1235,8 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
     ? `The pack is cleared. +40 XP each for the party, and ${3 * downed} wood for the base.`
     : kind === 'butcher'
       ? 'The old man lowers his cleaver and sits down hard. +40 XP.'
+      : kind === 'boar'
+        ? `The ${g0.foes[0].name} is down. +25 XP, and it dropped ${finalPerfect.current ? '2 boar meat' : '1 boar meat'}: pick it up in the woods.`
       : `The ${g0.foes[0].name} is defeated. +40 XP and 3 wood for the base.`;
 
   return (
@@ -842,17 +1247,17 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
           <View style={st.sceneBox} ref={sceneRef} onLayout={onSceneLayout}>
             {field ? (
               <Animated.View style={shakeStyle}>
-                <BattleScene field={field} actors={actors} rune={rune} />
+                <BattleScene field={field} actors={actors} rune={rune} glyphs={glyphs} fx={fx} />
               </Animated.View>
             ) : null}
 
             {/* Party battles: HP under everyone, a target marker, and tap-to-target. */}
             {field && party
-              ? g0.heroes.map((h, i) => <FieldBar key={`hb${i}`} field={field} slot={field.heroes[i]} dx={hdx[i]} dy={hdy[i]} value={h.hp} max={HERO_MAX_HP} />)
+              ? g0.heroes.map((h, i) => <FieldBar key={`hb${i}`} field={field} slot={field.heroes[i]} dx={hdx[i]} dy={hdy[i]} value={h.hp} max={h.maxHp} />)
               : null}
             {field && party
               ? g0.foes.map((f, j) =>
-                  f.out ? null : <FieldBar key={`fb${j}`} field={field} slot={field.foes[j]} dx={fdx[j]} dy={fdy[j]} value={f.hp} max={FOE_MAX_HP} />,
+                  f.out ? null : <FieldBar key={`fb${j}`} field={field} slot={field.foes[j]} dx={fdx[j]} dy={fdy[j]} value={f.hp} max={f.maxHp} />,
                 )
               : null}
             {field && party && choosing && !g0.foes[target]?.out ? <TargetMarker field={field} slot={field.foes[target]} beat={beat} /> : null}
@@ -897,7 +1302,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                   </View>
                   <View style={st.barRow}>
                     <Text style={[t.stat, st.barLabel]}>HP</Text>
-                    <SegBar value={shown.hp} max={FOE_MAX_HP} segs={16} fill={colors.hpRose} height={6} />
+                    <SegBar value={shown.hp} max={shown.maxHp} segs={16} fill={colors.hpRose} height={6} />
                   </View>
                   <View style={st.barRow}>
                     <Text style={[t.stat, st.barLabel]}>BREAK</Text>
@@ -910,6 +1315,18 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                 <Pressable accessibilityRole="switch" accessibilityState={{ checked: assist }} onPress={() => setAssist((a) => !a)} hitSlop={8}>
                   <Chip label={assist ? 'ASSIST ON' : 'ASSIST OFF'} fill={assist ? colors.mint : colors.vellum} />
                 </Pressable>
+                {!encounter ? (
+                  <Pressable
+                    accessibilityRole="switch"
+                    accessibilityLabel="Your class"
+                    accessibilityState={{ checked: mage, disabled: phase === 'acting' }}
+                    disabled={phase === 'acting'}
+                    onPress={toggleClass}
+                    hitSlop={8}
+                  >
+                    <Chip label={mage ? 'MAGE' : 'WARRIOR'} fill={mage ? colors.lavender : colors.vellum} />
+                  </Pressable>
+                ) : null}
                 {!encounter ? (
                   <Pressable
                     accessibilityRole="switch"
@@ -946,11 +1363,11 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
           <View style={[st.dock, { paddingBottom: insets.bottom + 10 }]}>
             <View style={st.statusRow}>
               <View style={st.heroStat}>
-                <HeadSprite look={0} />
+                <HeadSprite look={g0.heroes[0].look} />
                 <View style={{ gap: 2 }}>
                   <Text style={t.stat}>YOU · HP {g0.heroes[0].hp}</Text>
                   <View style={{ width: 92, flexDirection: 'row' }}>
-                    <SegBar value={g0.heroes[0].hp} max={HERO_MAX_HP} segs={10} fill={colors.hpRose} height={4} />
+                    <SegBar value={g0.heroes[0].hp} max={g0.heroes[0].maxHp} segs={10} fill={colors.hpRose} height={4} />
                   </View>
                 </View>
                 {party ? (
@@ -977,19 +1394,19 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
             <View style={{ height: PANEL_H }}>
               {phase === 'menu' ? (
                 <View style={{ gap: 10, flex: 1 }}>
-                  <PixelButton height={96} onPress={() => setPhase('moves')} accessibilityLabel="Attack">
+                  <PixelButton height={96} onPress={() => setPhase('moves')} accessibilityLabel={mage ? 'Cast' : 'Attack'}>
                     <View style={st.btnRow}>
-                      <PixelIcon name="sword" size={5} />
+                      <PixelIcon name={mage ? 'spark' : 'sword'} size={5} />
                       <View style={{ flex: 1 }}>
-                        <Text style={[t.button, { fontSize: 28, lineHeight: 32 }]}>ATTACK</Text>
+                        <Text style={[t.button, { fontSize: 28, lineHeight: 32 }]}>{mage ? 'CAST' : 'ATTACK'}</Text>
                         <Text style={t.caption} numberOfLines={1}>
-                          {MOVES.filter(canUse).length} moves ready{party ? ` · target: ${tf.name}` : ''}
+                          {actions.filter(canUse).length} {mage ? 'spells' : 'moves'} ready{party ? ` · target: ${tf.name}` : ''}
                         </Text>
                       </View>
                     </View>
                   </PixelButton>
                   <View style={{ flexDirection: 'row', gap: 8 }}>
-                    {kind !== 'butcher' ? (
+                    {kind === 'shroomie' ? (
                       <PixelButton style={{ flex: 1 }} height={84} fill={colors.mint} shadow={colors.questGreen} onPress={() => setPhase('tame')} accessibilityLabel="Tame">
                         <View style={st.btnRow}>
                           <PixelIcon name="heart" size={3} />
@@ -1016,7 +1433,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
               {phase === 'moves' ? (
                 <View style={{ flex: 1, gap: 8 }}>
                   <View style={st.grid}>
-                    {MOVES.map((m, i) => {
+                    {actions.map((m, i) => {
                       const on = i === sel;
                       return (
                         <Pressable
@@ -1035,9 +1452,9 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                             {m.name}
                           </Text>
                           <View style={{ flexDirection: 'row', gap: 4 }}>
-                            {m.runes.map((_, k) => (
-                              <View key={k} style={st.runeDot} />
-                            ))}
+                            {isSpell(m)
+                              ? m.glyphs.map((_, k) => <View key={k} style={st.glyphDot} />)
+                              : m.runes.map((_, k) => <View key={k} style={st.runeDot} />)}
                           </View>
                         </Pressable>
                       );
@@ -1049,9 +1466,18 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                         ‹ Back
                       </Text>
                     </PixelButton>
-                    <PixelButton style={{ flex: 1 }} height={52} disabled={!canUse(move)} onPress={() => runMove(move, target)}>
+                    <PixelButton
+                      style={{ flex: 1 }}
+                      height={52}
+                      disabled={!canUse(move)}
+                      onPress={() => takeTurn((j) => (isSpell(move) ? runSpell(move, j) : runMove(move, j)))}
+                    >
                       <Text style={[t.buttonSmall, st.cta]} numberOfLines={1}>
-                        {canUse(move) ? `Use ${move.name}` : `Needs ${move.cost} AP`}
+                        {!canUse(move)
+                          ? `Needs ${move.cost} AP`
+                          : isSpell(move) && move.heal
+                            ? `Mend ${healFor === g0.heroes[0] ? 'yourself' : healFor.name}`
+                            : `${mage ? 'Cast' : 'Use'} ${move.name}`}
                       </Text>
                     </PixelButton>
                   </View>
@@ -1088,7 +1514,7 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                         ‹ Back
                       </Text>
                     </PixelButton>
-                    <PixelButton style={{ flex: 1 }} height={52} fill={colors.mint} shadow={colors.questGreen} onPress={() => tryTame(target)}>
+                    <PixelButton style={{ flex: 1 }} height={52} fill={colors.mint} shadow={colors.questGreen} onPress={() => takeTurn((j) => tryTame(j))}>
                       <Text style={[t.buttonSmall, st.cta]}>Try to tame · {Math.round(chance * 100)}%</Text>
                     </PixelButton>
                   </View>
@@ -1144,11 +1570,13 @@ export function BattleScreen({ encounter, onDone, onExit }: { encounter?: Encoun
                             : encounter
                               ? kind === 'butcher'
                                 ? `You backed off. The ${encounter.name} is still guarding his hut.`
+                                : kind === 'boar'
+                                ? `You backed off. The ${encounter.name} is still rooting around the woods.`
                                 : `You backed off. The ${encounter.name} is still wandering your base.`
                               : 'You slipped away into the fog. No rewards from this room.'}
                     </Text>
-                    <PixelButton height={52} onPress={() => (onDone ? onDone(phase as BattleResult) : reset(full))} style={{ marginTop: 'auto' }}>
-                      <Text style={[t.buttonSmall, st.cta]}>{onDone ? 'Back to base' : 'Fight again'}</Text>
+                    <PixelButton height={52} onPress={() => (onDone ? onDone(phase as BattleResult, { perfect: finalPerfect.current }) : reset(full))} style={{ marginTop: 'auto' }}>
+                      <Text style={[t.buttonSmall, st.cta]}>{onDone ? (kind === 'boar' ? 'Back to the woods' : 'Back to base') : 'Fight again'}</Text>
                     </PixelButton>
                   </View>
                 </Framed>
@@ -1191,12 +1619,12 @@ function TargetMarker({ field, slot, beat }: { field: Field; slot: { x: number; 
   );
 }
 
-function HeadSprite({ look, small }: { look: number; small?: boolean }) {
-  const pic = useMemo(() => gridPicture(`herohead${look}`, heroPortrait(HERO_LOOKS[look]), 2), [look]);
-  const size = small ? 26 : 30;
+function HeadSprite({ look, small }: { look: HeroLook; small?: boolean }) {
+  const key = `${look.cls}-${look.sex}-${look.skin}-${look.hair}-${look.hairColor}`;
+  const pic = useMemo(() => gridPicture(`heroface-${key}`, heroFace(look), 2), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <View style={[st.portrait, { width: size, height: size }]}>
-      <Canvas style={{ width: 24, height: 24 }}>
+    <View style={[st.portrait, { width: small ? 34 : 38, height: small ? 28 : 32 }]}>
+      <Canvas style={{ width: 32, height: 26 }}>
         <Picture picture={pic} />
       </Canvas>
     </View>
@@ -1232,6 +1660,7 @@ const st = StyleSheet.create({
   btnRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', alignContent: 'stretch', gap: 8, flex: 1 },
   moveTile: { width: '48.5%', flexGrow: 1, borderWidth: 2, borderColor: colors.ink, paddingHorizontal: 8, paddingVertical: 6, justifyContent: 'space-between' },
+  glyphDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.sky, borderWidth: 1, borderColor: colors.ink },
   runeDot: { width: 7, height: 7, backgroundColor: colors.xpGold, borderWidth: 1, borderColor: colors.ink, transform: [{ rotate: '45deg' }] },
   card: { flex: 1, borderWidth: 2, borderColor: colors.ink, padding: 8, gap: 2 },
   note: { borderWidth: 2, borderColor: colors.ink, padding: 8, backgroundColor: colors.sky },

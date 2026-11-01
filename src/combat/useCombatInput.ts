@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useManualGesture } from 'react-native-gesture-handler';
 import { useSharedValue } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -28,7 +28,10 @@ export function useCombatInput(assist: boolean) {
   const downX = useSharedValue(0);
   const pending = useSharedValue(0);
   const scale = useSharedValue(assist ? WINDOWS.assist : 1);
-  scale.value = assist ? WINDOWS.assist : 1;
+  // Shared values are only written outside render.
+  useEffect(() => {
+    scale.value = assist ? WINDOWS.assist : 1;
+  }, [assist, scale]);
 
   const resolveRef = useRef<((v: RuneVerdict) => void) | null>(null);
   const defendRef = useRef<((v: DefendVerdict) => void) | null>(null);

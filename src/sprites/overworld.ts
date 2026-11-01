@@ -1,106 +1,16 @@
-import { HERO_LOOKS, FOE_LOOKS } from './characters';
+import { FOE_LOOKS } from './characters';
 import { Grid, PAL } from './pixel';
+import { colors } from '../theme';
 
 // Top-down sprites for the base map, DS style: chibi proportions, a 1-pixel ink outline,
 // palette tokens only. Feet sit on the bottom row of each frame.
 
 export type Dir = 'down' | 'up' | 'left' | 'right';
 
-// Hero, 16 x 22 frame (14 x 20 body plus the outline). Legs are added per walk frame.
-export const HERO_OW_W = 16;
-export const HERO_OW_H = 22;
-
-const HERO_DOWN = [
-  '....LLLLLL....',
-  '..LLHHLLLLLL..',
-  '.LLHLLLLLLLLD.',
-  '.LLLLLLLLLLLD.',
-  '.LDRRRRRRRRDD.',
-  '.DRSSSSSSSSRD.',
-  '.DSSKSSSSKSSD.',
-  '.DSSKSSSSKSSD.',
-  '..SrSSSSSSrS..',
-  '...SSSSSSSS...',
-  '..YDDDbbDDDY..',
-  '.YYDLLDDLLDYY.',
-  '.YGDDDDDDDDGY.',
-  '.YGSDbbbbDSGY.',
-  '..GDDDDDDDDG..',
-  '...DLDDDDLD...',
-];
-
-const HERO_UP = [
-  '....LLLLLL....',
-  '..LLHHLLLLLL..',
-  '.LLHLLLLLLLLD.',
-  '.LLLLLLLLLLLD.',
-  '.LLLLLLLLLLLD.',
-  '.DLLLLLLLLLDD.',
-  '.DRRRRRRRRRRD.',
-  '.DRRRRRRRRRRD.',
-  '..RRRRRRRRRR..',
-  '...RRRRRRRR...',
-  '..YYYYYYYYYY..',
-  '.YYHYYYYYYYYY.',
-  '.SGYYYYYYYYGS.',
-  '.YGYYYYYYYYGY.',
-  '..GGYYYYYYGG..',
-  '...GGGGGGGG...',
-];
-
-const HERO_RIGHT = [
-  '....LLLLLL....',
-  '...LLHHLLLLL..',
-  '..LHLLLLLLLLD.',
-  '..LLLLLLLLLLD.',
-  '..RRRRRRLDDDD.',
-  '..RRRSSSSSSDD.',
-  '..RRSSSSSKSD..',
-  '..RRSSSSSKSS..',
-  '...RSSSSSSrS..',
-  '....SSSSSSS...',
-  '...YYDDDDb....',
-  '..YYDDLLDD....',
-  '..YGDDDDDSS...',
-  '..YGDbbbbD....',
-  '...GDDDDDD....',
-  '....DLDDLD....',
-];
-
-function mirror(map: string[]) {
-  return map.map((r) => r.split('').reverse().join(''));
-}
-
-// frame 0 = standing, 1 and 3 = passing (body bobs up), 2 = the other foot forward.
-export function heroOverworld(dir: Dir, frame: number, look = 0): Grid {
-  const g = new Grid(HERO_OW_W, HERO_OW_H);
-  const sw = HERO_LOOKS[look] ?? {};
-  const bob = frame % 2 === 1 ? -1 : 0;
-  const top = 2 + bob;
-  const legY = top + 16;
-  const boot = (x: number, y: number, h: number) => {
-    for (let j = 0; j < h; j++) {
-      g.set(x, y + j, PAL.P);
-      g.set(x + 1, y + j, PAL.P);
-    }
-  };
-  // Legs: on a step, one foot is planted (2 rows) and the other is lifted (1 row).
-  const a = frame === 2 ? 1 : 2;
-  const b = frame === 0 || frame === 2 ? 2 : 1;
-  if (dir === 'down' || dir === 'up') {
-    boot(4, legY, frame === 0 ? 2 : a);
-    boot(10, legY, frame === 0 ? 2 : b);
-  } else {
-    const fwd = dir === 'right' ? 1 : -1;
-    const stride = frame === 0 ? 0 : frame === 2 ? 1 : 0;
-    boot(dir === 'right' ? 5 - stride : 9 + stride, legY, 2);
-    boot(dir === 'right' ? 8 + stride * fwd : 6 - stride, legY, frame === 2 ? 2 : 1 + (frame === 0 ? 1 : 0));
-  }
-  const map = dir === 'down' ? HERO_DOWN : dir === 'up' ? HERO_UP : dir === 'right' ? HERO_RIGHT : mirror(HERO_RIGHT);
-  g.stamp(map, 1, top, sw);
-  g.outline(PAL.K);
-  return g;
-}
+// People on the base (the old butcher) use a 16 x 22 frame. The hero has its own, taller frame
+// for the wizard hat (src/sprites/hero.ts).
+export const NPC_OW_W = 16;
+export const NPC_OW_H = 22;
 
 // Wandering toadstool, 16 x 16 frame.
 export const TOAD_OW_W = 16;
@@ -139,6 +49,7 @@ export const TREE_W = 30;
 export const TREE_H = 48;
 
 export function treeGrid(variant: number): Grid {
+  if (variant >= 3) return autumnTreeGrid(variant);
   const g = new Grid(TREE_W, TREE_H);
   const v = variant % 3;
   // Trunk: bark with a shaded right side, a few marks and a root flare.
@@ -211,6 +122,155 @@ export function treeGrid(variant: number): Grid {
   const bl = v === 1 ? PAL.B : PAL.R;
   g.set(8 + v, 20, bl);
   g.set(20 - v, 11 + v, bl);
+  g.outline(PAL.K);
+  return g;
+}
+
+// ---------- Autumn trees ----------
+// Three more kinds, mixed in among the green trees (variants 0-2). Each comes in two shapes.
+//   variants 3, 4: golden tree, a thick pale trunk under a round dome of gold leaves
+//   variants 5, 6: red tree, a twisty dark trunk threading up through flat layered pads
+//   variants 7, 8: purple tree, a twisty dark trunk under a wide, rounded crown
+// Same 30 x 48 frame and trunk base as the green trees, so tapping, chopping and walking around
+// them work the same. Canopies use the green tree's lighting: lit top left, shade bottom right.
+export const TREE_KINDS = ['green', 'gold', 'red', 'purple'] as const;
+export type TreeKind = (typeof TREE_KINDS)[number];
+export const treeKind = (variant: number): TreeKind => (variant < 3 ? 'green' : TREE_KINDS[Math.min(3, 1 + Math.floor((variant - 3) / 2))]);
+// The variant for a kind and a shape (0 or 1; green trees have three shapes).
+export const treeVariant = (kind: TreeKind, shape: number) => (kind === 'green' ? shape % 3 : 3 + (TREE_KINDS.indexOf(kind) - 1) * 2 + (shape % 2));
+
+type LeafColors = { body: string; deep: string; lit: string; glint: string };
+export const LEAF_COLORS: Record<TreeKind, LeafColors> = {
+  green: { body: colors.leaf, deep: colors.leafDeep, lit: colors.questGreen, glint: colors.mint },
+  gold: { body: colors.leafGold, deep: colors.leafGoldDeep, lit: colors.butter, glint: colors.vellum },
+  red: { body: colors.leafRed, deep: colors.leafRedDeep, lit: colors.hpRose, glint: colors.rose },
+  purple: { body: colors.epicPurple, deep: colors.leafPlumDeep, lit: colors.lavender, glint: colors.vellum },
+};
+
+// An ellipse of leaves: center x, center y, x radius, y radius.
+type Pad = [number, number, number, number];
+const inPad = (x: number, y: number, [cx, cy, rx, ry]: Pad) => ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1 + 0.6 / Math.max(rx, ry);
+
+// Shade a canopy: body color, a dark lower-right rim, a lit upper-left rim, leaf "v" texture and
+// the dark scallop each upper tier casts over the one beneath it. Only paints where `inside`.
+function paintCanopy(g: Grid, pads: Pad[], inside: (x: number, y: number) => boolean, lc: LeafColors, seed: number, maxY: number) {
+  for (let y = 0; y < maxY; y++) {
+    for (let x = 0; x < TREE_W; x++) {
+      if (!inside(x, y)) continue;
+      const lower = !inside(x + 1, y + 2) || !inside(x + 2, y + 1);
+      const upper = !inside(x - 2, y - 2) || !inside(x - 1, y - 2);
+      g.set(x, y, lower ? lc.deep : upper ? lc.lit : lc.body);
+    }
+  }
+  for (let row = 0, cy = 3; cy < maxY - 2; cy += 4, row++) {
+    for (let cx = 2 + (row % 2) * 3; cx < TREE_W - 2; cx += 6) {
+      const x = cx + ((cx * 7 + cy * 13 + seed * 5) % 3) - 1;
+      const y = cy + ((cx + seed) % 2);
+      if (![[x, y], [x + 1, y + 1], [x + 2, y], [x + 1, y - 2], [x + 3, y + 2]].every(([a, b]) => inside(a, b)) || g.get(x, y) !== lc.body) continue;
+      const c = x + y < 22 + seed * 2 ? lc.lit : lc.deep;
+      g.set(x, y, c);
+      g.set(x + 1, y + 1, c);
+      g.set(x + 2, y, c);
+    }
+  }
+  for (let i = 0; i < pads.length; i++) {
+    const [bx, by, rx, ry] = pads[i];
+    for (let x = bx - rx; x <= bx + rx; x++) {
+      const y = Math.floor(by + ry * Math.sqrt(Math.max(0, 1 - ((x - bx) / rx) ** 2))) + 1;
+      if (!inside(x, y) || !inside(x, y + 1)) continue;
+      if (pads.some((b, j) => j !== i && b[1] < by && inPad(x, y, b))) continue;
+      if (pads.slice(i + 1).some((b) => b[1] > by && inPad(x, y, b))) {
+        g.set(x, y, lc.deep);
+        if (x < bx) g.set(x, y + 1, lc.lit);
+      }
+    }
+  }
+  // A glint up on the top tier.
+  g.set(pads[0][0] - 3, pads[0][1] - pads[0][3] + 2, lc.glint);
+  g.set(pads[0][0] - 2, pads[0][1] - pads[0][3] + 2, lc.glint);
+}
+
+// A thick, pale trunk: seven wide at the root, with dark bark dashes and a broad root flare.
+function paleTrunk(g: Grid, top: number) {
+  for (let y = top; y < 47; y++) {
+    const x0 = y < top + 6 ? 13 : 12;
+    const x1 = y < top + 6 ? 17 : 18;
+    for (let x = x0; x <= x1; x++) g.set(x, y, x >= x1 - 1 ? colors.barkPaleShade : colors.barkPale);
+    g.set(x0, y, colors.vellum);
+  }
+  const dashes = [[13, 31], [14, 31], [16, 34], [17, 34], [13, 38], [14, 38], [15, 38], [16, 42], [17, 42], [13, 44]];
+  for (const [x, y] of dashes) if (y >= top) g.set(x, y, colors.barkDeep);
+  [[10, 46], [11, 46], [11, 45]].forEach(([x, y]) => g.set(x, y, colors.barkPale));
+  [[19, 46], [20, 46], [19, 45]].forEach(([x, y]) => g.set(x, y, colors.barkPaleShade));
+}
+
+// A twisty, dark trunk: it sways left and right as it climbs, lit on the left, with a spiral of
+// grooves. `top` is where it disappears into the leaves; `branches` reach out from it into the pads.
+function twistyTrunk(g: Grid, top: number, phase: number, branches: [number, number, number][] = []) {
+  const cx = (y: number) => 15 + Math.round(2.2 * Math.sin((46 - y) * 0.26 + phase) - 2.2 * Math.sin(phase));
+  for (let y = top; y < 47; y++) {
+    const c = cx(y);
+    const half = y > 40 ? 2 : 1;
+    for (let x = c - half; x <= c + 2; x++) g.set(x, y, x === c + 2 ? colors.barkDarkShade : colors.barkDark);
+    // Lit edge on the left, and a groove that winds round the trunk every few rows.
+    g.set(c - half, y, colors.bark);
+    if ((y + Math.round(phase * 3)) % 5 === 0) g.set(c, y, colors.barkDarkShade);
+    if ((y + Math.round(phase * 3)) % 5 === 1) g.set(c + 1, y, colors.barkDarkShade);
+  }
+  // Branches: [start height on the trunk, end x, end y], two pixels thick.
+  for (const [sy, ex, ey] of branches) {
+    const sx = cx(sy);
+    const n = Math.max(Math.abs(ex - sx), Math.abs(ey - sy));
+    for (let k = 0; k <= n; k++) {
+      const x = Math.round(sx + ((ex - sx) * k) / n);
+      const y = Math.round(sy + ((ey - sy) * k) / n);
+      g.set(x, y, colors.barkDark);
+      g.set(x, y + 1, colors.barkDarkShade);
+    }
+  }
+  [[11, 46], [12, 46], [12, 45]].forEach(([x, y]) => g.set(x + cx(46) - 15, y, colors.barkDark));
+  [[18, 46], [19, 46], [18, 45]].forEach(([x, y]) => g.set(x + cx(46) - 15, y, colors.barkDarkShade));
+}
+
+function autumnTreeGrid(variant: number): Grid {
+  const g = new Grid(TREE_W, TREE_H);
+  const kind = treeKind(variant);
+  const shape = (variant - 3) % 2;
+  const lc = LEAF_COLORS[kind];
+  if (kind === 'gold') {
+    // A round golden dome on a thick pale trunk.
+    const pads: Pad[] =
+      shape === 0
+        ? [[15, 9, 8, 7], [8, 17, 6, 6], [22, 17, 6, 6], [15, 22, 11, 8]]
+        : [[14, 8, 7, 6], [21, 13, 7, 6], [8, 16, 6, 6], [16, 22, 11, 8]];
+    paleTrunk(g, 26);
+    const inside = (x: number, y: number) => pads.some((p) => inPad(x, y, p));
+    paintCanopy(g, pads, inside, lc, shape + 1, 34);
+  } else if (kind === 'red') {
+    // Flat, layered pads like a maple, with the twisty trunk and its branches showing between them.
+    const pads: Pad[] =
+      shape === 0
+        ? [[15, 6, 7, 4], [9, 14, 7, 4], [21, 19, 8, 4], [12, 26, 10, 4]]
+        : [[16, 6, 7, 4], [22, 13, 7, 4], [9, 19, 8, 4], [17, 26, 10, 4]];
+    twistyTrunk(
+      g,
+      8,
+      shape === 0 ? 0.6 : 2.4,
+      pads.slice(1).map(([px, py]) => [py + 5, px, py] as [number, number, number]),
+    );
+    const inside = (x: number, y: number) => pads.some((p) => inPad(x, y, p));
+    paintCanopy(g, pads, inside, lc, shape + 3, 32);
+  } else {
+    // A wide purple crown on the twisty trunk: a dome on top over a broad middle tier, with
+    // its underside rounded off so the trunk shows beneath it.
+    const pads: Pad[] =
+      shape === 0
+        ? [[15, 8, 8, 6], [15, 16, 12, 7], [15, 22, 9, 5]]
+        : [[14, 8, 8, 6], [16, 16, 12, 7], [15, 22, 9, 5]];
+    twistyTrunk(g, 22, shape === 0 ? 1.4 : 3.6);
+    const inside = (x: number, y: number) => pads.some((p) => inPad(x, y, p));
+    paintCanopy(g, pads, inside, lc, shape + 5, 30);
+  }
   g.outline(PAL.K);
   return g;
 }
@@ -289,9 +349,10 @@ export function heartGrid(): Grid {
 }
 
 // A falling leaf and a wood chip, for chopping.
-export function leafGrid(): Grid {
+export function leafGrid(kind: TreeKind = 'green'): Grid {
   const g = new Grid(4, 4);
-  g.stamp(['m.', 'fm', '.F'], 1, 0);
+  const lc = LEAF_COLORS[kind];
+  [[1, 0, lc.lit], [1, 1, lc.body], [2, 1, lc.lit], [2, 2, lc.deep]].forEach(([x, y, c]) => g.set(x as number, y as number, c as string));
   return g;
 }
 
@@ -325,7 +386,7 @@ const OLD_MAN = [
 ];
 
 export function oldManOverworld(frame: number): Grid {
-  const g = new Grid(HERO_OW_W, HERO_OW_H);
+  const g = new Grid(NPC_OW_W, NPC_OW_H);
   const top = 2 + (frame % 2);
   for (const x of [4, 10]) for (let y = 18; y < 20; y++) {
     g.set(x, y, PAL.P);

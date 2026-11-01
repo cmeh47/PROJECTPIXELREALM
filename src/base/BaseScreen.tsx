@@ -1,4 +1,4 @@
-import { Canvas, Group, Oval, Path, Picture, Skia } from '@shopify/react-native-skia';
+import { Canvas, Group, Oval, Picture } from '@shopify/react-native-skia';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withSequence, withTiming, type SharedValue } from 'react-native-reanimated';
@@ -6,31 +6,36 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BattleScreen, type BattleResult } from '../combat/BattleScreen';
 import { PopText, type Pop } from '../combat/Pops';
-import { TREE_H, TREE_W, type Dir } from '../sprites/overworld';
+import { TREE_H, TREE_W, treeKind, type Dir, type TreeKind } from '../sprites/overworld';
 import { colors, fonts } from '../theme';
 import { Chip, Framed, haptic, PixelButton, styles as t } from '../ui/pixel';
 import {
-  bubblePicture,
-  groundPicture,
+  groundImage,
   heartPicture,
   heroOwPicture,
   housePicture,
   hammerPicture,
   hutPicture,
   leafPicture,
-  logPicture,
   oldManPicture,
   shackPicture,
+  signPicture,
   stumpPicture,
   swipePicture,
   toadOwPicture,
   treePicture,
 } from './art';
-import { BUTCHER, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
+import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, SIGN, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
 import { QuestLog } from './QuestLog';
-import { BUTCHER_SCRIPT, BUTCHER_SPEAKER, CRITTER_SCRIPT, critterSpeaker } from './npcs';
-import { WindLayer } from './WindLayer';
+import type { Hero } from '../net/useHero';
+import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
+import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
+import { BUTCHER_SPEAKER, CRITTER_SCRIPT, butcherScript, critterSpeaker } from './npcs';
+import { CoinCounter, InventorySheet, MEAT_PRICE, PackButton, roomFor, type Carry } from './Inventory';
+import { WoodsScreen } from './WoodsScreen';
+import { BakedImage, WindLayer } from './WindLayer';
+import { Bubble, FlashOverlay, Icon, LeafWipe, Mover, Static, SwirlOverlay } from './pieces';
 
 // ---------- Tuning ----------
 const HERO_SPEED = 64; // art px per second
@@ -43,6 +48,8 @@ const GRACE_MS = 2500; // after fleeing or losing, Shroomies ignore you for a mo
 const MAX_VISITORS = 4;
 const HUT_WOOD = 10; // the butcher's quest
 const BUILD_MS = 10 * 60_000; // he rebuilds his shack in 10 real minutes
+const WIPE_MS = 6 * 83; // the leaf wipe between the base and the Boar Woods: 6 ticks
+const BOAR_RESPAWN_MS = 2 * 60_000;
 
 const TOAD_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie', 'Mossback Shroomie'];
 const TOAD_LOOKS = [0, 1, 2, 0];
@@ -63,7 +70,7 @@ type Toad = {
   status: 'wild' | 'gone' | 'critter';
 };
 type Tree = (typeof TREES)[number] & { hits: number; felledAt: number | null; flash: number; shake: number };
-type Leaf = { x: number; y: number; vx: number; vy: number; life: number };
+type Leaf = { x: number; y: number; vx: number; vy: number; life: number; kind?: TreeKind };
 type Phase = 'roam' | 'alert' | 'swirl' | 'battle';
 type Foe = { kind: 'shroomie'; id: number } | { kind: 'butcher' };
 // How far you've got with the old butcher: he's hostile until you beat him, then offers the hut job.
@@ -91,9 +98,17 @@ function newToads(): Toad[] {
     status: 'wild',
   }));
 }
+// Critters settle by the cottage, each in its own spot.
+function settleCritter(td: Toad) {
+  td.home = { x: HOUSE.x + 10 + td.id * 12, y: HOUSE.y + 66 + (td.id % 2) * 8 };
+  td.x = td.home.x;
+  td.y = td.home.y;
+  td.from = td.home;
+  td.to = td.home;
+}
 const newTrees = (): Tree[] => TREES.map((tr) => ({ ...tr, hits: 0, felledAt: null, flash: 0, shake: 0 }));
 
-export function BaseScreen() {
+export function BaseScreen({ player }: { player: Hero }) {
   const insets = useSafeAreaInsets();
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   // DS-like framing: about 190 art pixels across, at a whole-number scale.
@@ -111,12 +126,29 @@ export function BaseScreen() {
   const [wood, setWood] = useState(0);
   const woodRef = useRef(0);
   woodRef.current = wood;
+  // Your inventory (wood and boar meat), coins, and the Boar Woods: meat left on the ground there and
+  // when each boar is back after a hunt.
+  const [meat, setMeat] = useState(0);
+  const carryRef = useRef<Carry>({ wood: 0, meat: 0 });
+  carryRef.current = { wood, meat };
+  const [coins, setCoins] = useState(0);
+  const [groundMeat, setGroundMeat] = useState(0);
+  const [boarsBackAt, setBoarsBackAt] = useState<(number | null)[]>([null, null, null]);
+  const [woods, setWoods] = useState(false);
+  const [pack, setPack] = useState(false);
+  const [packBump, setPackBump] = useState(0);
+  const [packFull, setPackFull] = useState(0);
+  const wipe = useSharedValue(0);
+  const [wiping, setWiping] = useState(false);
   const [pops, setPops] = useState<Pop[]>([]);
   const [hintSeen, setHintSeen] = useState(false);
   const [invite, setInvite] = useState(false);
   const [arena, setArena] = useState(false);
   const reduceMotion = useReducedMotion();
   const [battle, setBattle] = useState<{ foe: Foe; key: number } | null>(null);
+  // While a battle or the arena covers the base, the base's game loop rests.
+  const coveredRef = useRef(false);
+  coveredRef.current = phase === 'battle' || arena || woods || pack;
   const [banner, setBanner] = useState<string | null>(null);
   const [talk, setTalk] = useState<Talk | null>(null);
   const [stage, setStageState] = useState<ButcherStage>('hostile');
@@ -170,7 +202,9 @@ export function BaseScreen() {
 
   // ---------- Collision ----------
   const blocked = useCallback((x: number, y: number) => {
-    if (x < 14 || x > MAP_W - 14 || y < 46 || y > MAP_H - 10) return true;
+    const gap = y > EAST_GAP.walkY0 && y < EAST_GAP.walkY1 && x < MAP_W - 1;
+    if (x < 14 || (x > MAP_W - 14 && !gap) || y < 46 || y > MAP_H - 10) return true;
+    if (Math.abs(x - SIGN.x) < 4 && y > SIGN.y - 3 && y < SIGN.y + 2) return true;
     if (x > HOUSE_BOX.x - 3 && x < HOUSE_BOX.x + HOUSE_BOX.w + 3 && y > HOUSE_BOX.y && y < HOUSE_BOX.y + HOUSE_BOX.h + 2) return true;
     if (inPond({ x, y }, 3)) return true;
     if (x > HUT_BOX.x && x < HUT_BOX.x + HUT_BOX.w && y > HUT_BOX.y && y < HUT_BOX.y + HUT_BOX.h) return true;
@@ -234,7 +268,8 @@ export function BaseScreen() {
         if (result === 'won') {
           // He's had enough. Once the flash clears, he talks.
           setStage('spared');
-          setTimeout(() => openTalk(BUTCHER_SPEAKER, BUTCHER_SCRIPT, 'spared'), 650);
+          save({ fn: 'butcher_step', step: 'beaten' });
+          setTimeout(() => openTalk(BUTCHER_SPEAKER, butcherScript(carryRef.current.meat, MEAT_PRICE), 'spared'), 650);
         } else if (result === 'fled') {
           stepBack(BUTCHER);
         } else {
@@ -246,16 +281,13 @@ export function BaseScreen() {
         if (result === 'won') {
           td.status = 'gone';
           setWood((w) => w + 3);
+          save({ fn: 'shroomie_battle', idx: id, result: 'won' });
           for (let k = 0; k < 8; k++) leaves.current.push({ x: td.x, y: td.y - 6, vx: rand(-30, 30), vy: rand(-50, -10), life: 600 });
           setTimeout(() => pop('+3 WOOD', colors.butter, td.x, td.y - 20), 300);
         } else if (result === 'tamed') {
           td.status = 'critter';
-          // Critters settle by the cottage.
-          td.home = { x: HOUSE.x + 10 + id * 12, y: HOUSE.y + 66 + (id % 2) * 8 };
-          td.x = td.home.x;
-          td.y = td.home.y;
-          td.from = td.home;
-          td.to = td.home;
+          settleCritter(td);
+          save({ fn: 'shroomie_battle', idx: id, result: 'tamed' });
           setTimeout(() => pop('NEW CRITTER!', colors.mint, td.x, td.y - 20, { big: true }), 300);
           setTimeout(() => setBanner(`Your ${td.name} moved in by the cottage. Tap it to say hi!`), 700);
         } else if (result === 'fled') {
@@ -316,7 +348,7 @@ export function BaseScreen() {
     const b = stageRef.current;
     const start =
       b === 'hostile' ? 'hostile' : b === 'spared' ? 'ask' : b === 'quest' ? (woodRef.current >= HUT_WOOD ? 'ready' : 'quest') : b === 'building' ? 'building' : b === 'built' ? 'opened' : 'shop';
-    openTalk(BUTCHER_SPEAKER, BUTCHER_SCRIPT, start);
+    openTalk(BUTCHER_SPEAKER, butcherScript(carryRef.current.meat, MEAT_PRICE), start);
     force();
   };
   const endTalk = (end?: string) => {
@@ -325,6 +357,7 @@ export function BaseScreen() {
     if (end === 'fight') startEncounter({ kind: 'butcher' });
     else if (end === 'accept') {
       setStage('quest');
+      save({ fn: 'butcher_step', step: 'accept' });
       haptic('success');
       pop('NEW QUEST!', colors.butter, BUTCHER.x, BUTCHER.y - 30, { big: true });
       setTimeout(() => setBanner(`Quest: rebuild the butcher's hut. Bring him ${HUT_WOOD} wood.`), 500);
@@ -335,8 +368,67 @@ export function BaseScreen() {
       buildStart.current = Date.now();
       setBuildLeft(BUILD_MS);
       setStage('building');
+      save({ fn: 'butcher_step', step: 'handin' });
       haptic('success');
-    } else if (end === 'opened') setStage('shop');
+    } else if (end === 'opened') {
+      setStage('shop');
+      save({ fn: 'butcher_step', step: 'opened' });
+    } else if (end === 'sell') {
+      // His cleaver comes down on the counter, then the coins hop over to you.
+      const n = carryRef.current.meat;
+      const h = hero.current;
+      setMeat(0);
+      save({ fn: 'sell_meat' });
+      haptic('heavy');
+      pop('THWACK!', colors.vellum, BUTCHER.x, BUTCHER.y - 30);
+      setTimeout(() => {
+        setCoins((c) => c + n * MEAT_PRICE);
+        haptic('success');
+        pop(`+${n * MEAT_PRICE} COINS`, colors.xpGold, h.x, h.y - 34, { big: true });
+      }, 330);
+    }
+  };
+
+  // ---------- The Boar Woods ----------
+  // A band of leaves blows across; the scene swaps under it.
+  const travel = async (toWoods: boolean) => {
+    if (wipe.value > 0) return;
+    goal.current = { to: null, holding: false, chop: null, downAt: 0 };
+    finger.current = null;
+    setWiping(true);
+    wipe.value = withTiming(1, { duration: WIPE_MS, easing: Easing.linear });
+    await wait(WIPE_MS / 2);
+    setWoods(toWoods);
+    if (!toWoods) {
+      // Back on the base, just inside the gap, facing home.
+      const h = hero.current;
+      h.x = MAP_W - 22;
+      h.y = (EAST_GAP.walkY0 + EAST_GAP.walkY1) / 2;
+      h.dir = 'left';
+      h.frame = 0;
+      heroX.value = h.x;
+      heroY.value = h.y;
+      force();
+    }
+    await wait(WIPE_MS / 2 + 20);
+    wipe.value = 0;
+    setWiping(false);
+  };
+  const onHunt = (idx: number, perfect: boolean) => {
+    setGroundMeat((m) => m + (perfect ? 2 : 1));
+    setBoarsBackAt((b) => b.map((t, i) => (i === idx ? Date.now() + BOAR_RESPAWN_MS : t)));
+    save({ fn: 'boar_hunt', idx, result: 'won', perfect });
+  };
+  const onPickUp = (n: number) => {
+    if (!roomFor(carryRef.current, 'meat', n)) {
+      setPackFull((k) => k + 1);
+      return false;
+    }
+    setMeat((m) => m + n);
+    setGroundMeat((m) => Math.max(0, m - n));
+    setPackBump((k) => k + 1);
+    save({ fn: 'pick_up_meat', n });
+    return true;
   };
 
   // The rebuild's clock. It ticks once a second for the bar over the shack.
@@ -360,12 +452,58 @@ export function BaseScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  // ---------- Saving ----------
+  // The server keeps the base between sessions. Each change above is made here first and sent as a
+  // server call; whenever the server answers, its copy wins.
+  const applySaved = (b: SavedBase) => {
+    setWood(b.wood);
+    setMeat(b.meat);
+    setCoins(b.coins);
+    setGroundMeat(b.groundMeat);
+    setBoarsBackAt(b.boarsBackAt);
+    b.shroomies.forEach((status, id) => {
+      const td = toads.current[id];
+      if (!td || td.status === status) return;
+      td.status = status;
+      if (status === 'critter') settleCritter(td);
+      else if (status === 'wild') Object.assign(td, newToads()[id]);
+    });
+    if (b.buildStartedAt != null) buildStart.current = b.buildStartedAt;
+    const next: ButcherStage = b.butcher === 'building' && b.buildDone ? 'built' : b.butcher;
+    // If this device's timer finished a moment before the server's, keep showing the finished shack.
+    if (!(next === 'building' && stageRef.current === 'built')) setStage(next);
+    force();
+  };
+  const { status: saveStatus, send: save } = useBaseSave(applySaved);
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  const travelRef = useRef(travel);
+  travelRef.current = travel;
+  // 1 while the leaf wipe runs, so the gap doesn't trigger twice.
+  const wipeRef = useRef(0);
+  useEffect(() => {
+    if (!woods) wipeRef.current = 0;
+  }, [woods]);
+
   // ---------- The game loop ----------
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
     let repaint = false;
+    // Shared values are sent to the UI thread only when they change, so a still scene doesn't redraw.
+    const sent = new Map<SharedValue<number>, number>();
+    const put = (sv: SharedValue<number>, v: number) => {
+      if (sent.get(sv) === v) return;
+      sent.set(sv, v);
+      sv.value = v;
+    };
     const tick = (now: number) => {
+      if (coveredRef.current) {
+        last = now;
+        raf = requestAnimationFrame(tick);
+        return;
+      }
       const dt = Math.min(50, now - last);
       last = now;
       repaint = false;
@@ -379,7 +517,15 @@ export function BaseScreen() {
         const c = chop.current;
         if (c) {
           c.ms += dt;
-          if (c.ms >= CHOP_MS) {
+          if (c.ms >= CHOP_MS && !roomFor(carryRef.current, 'wood', 1)) {
+            // No room for the wood: stop swinging.
+            chop.current = null;
+            haptic('warning');
+            setPackFull((k) => k + 1);
+            const tr = trees.current[c.tree];
+            pop('FULL', colors.hpRose, tr.x, tr.y - 44);
+            repaint = true;
+          } else if (c.ms >= CHOP_MS) {
             c.ms -= CHOP_MS;
             c.swing += 1;
             const tr = trees.current[c.tree];
@@ -387,12 +533,15 @@ export function BaseScreen() {
             tr.shake = 160;
             tr.flash = 80;
             setWood((w) => w + 1);
+            carryRef.current = { ...carryRef.current, wood: carryRef.current.wood + 1 };
+            setPackBump((k) => k + 1);
+            saveRef.current({ fn: 'chop' });
             haptic('light');
             pop('+1', colors.butter, tr.x, tr.y - 44);
-            for (let k = 0; k < 3; k++) leaves.current.push({ x: tr.x + rand(-10, 10), y: tr.y - rand(18, 36), vx: rand(-12, 12), vy: rand(-20, 0), life: 700 });
+            for (let k = 0; k < 3; k++) leaves.current.push({ x: tr.x + rand(-10, 10), y: tr.y - rand(18, 36), vx: rand(-12, 12), vy: rand(-20, 0), life: 700, kind: treeKind(tr.variant) });
             if (tr.hits >= CHOPS_PER_TREE) {
               tr.felledAt = Date.now();
-              for (let k = 0; k < 10; k++) leaves.current.push({ x: tr.x + rand(-12, 12), y: tr.y - rand(12, 40), vx: rand(-30, 30), vy: rand(-40, -5), life: 800 });
+              for (let k = 0; k < 10; k++) leaves.current.push({ x: tr.x + rand(-12, 12), y: tr.y - rand(12, 40), vx: rand(-30, 30), vy: rand(-40, -5), life: 800, kind: treeKind(tr.variant) });
               chop.current = null;
               haptic('success');
             }
@@ -450,6 +599,13 @@ export function BaseScreen() {
               moving = false;
               talkToButcher();
             }
+          }
+          // Out through the gap in the east tree ring: the Boar Woods.
+          if (h.x > EAST_GAP.x && h.y > EAST_GAP.walkY0 && h.y < EAST_GAP.walkY1 && wipeRef.current === 0) {
+            g.to = null;
+            g.holding = false;
+            wipeRef.current = 1;
+            travelRef.current(true);
           }
           if (moving) {
             h.walkMs += dt;
@@ -535,18 +691,18 @@ export function BaseScreen() {
       }
 
       // Push positions to the UI thread; the camera stays locked on the hero, clamped to the map.
-      beat.value = Math.floor(now / 400) % 2;
-      npcBeat.value = Math.floor(now / 700) % 2;
-      hammerBeat.value = Math.floor(now / 250) % 2;
-      heroX.value = h.x;
-      heroY.value = h.y;
+      put(beat, Math.floor(now / 400) % 2);
+      put(npcBeat, Math.floor(now / 700) % 2);
+      put(hammerBeat, Math.floor(now / 250) % 2);
+      put(heroX, h.x);
+      put(heroY, h.y);
       toads.current.forEach((td, i) => {
-        tx[i].value = td.x;
-        ty[i].value = td.y;
+        put(tx[i], td.x);
+        put(ty[i], td.y);
       });
       const v = viewRef.current;
-      camX.value = Math.round(Math.max(0, Math.min(MAP_W - v.w, h.x - v.w / 2)));
-      camY.value = Math.round(Math.max(0, Math.min(MAP_H - v.h, h.y - 10 - v.h / 2)));
+      put(camX, Math.round(Math.max(0, Math.min(MAP_W - v.w, h.x - v.w / 2))));
+      put(camY, Math.round(Math.max(0, Math.min(MAP_H - v.h, h.y - 10 - v.h / 2))));
 
       if (repaint) force();
       raf = requestAnimationFrame(tick);
@@ -639,8 +795,11 @@ export function BaseScreen() {
   };
 
   const resetBase = () => {
-    toads.current = newToads();
+    // Every Shroomie comes back, except the ones that became critters.
+    const kept = toads.current;
+    toads.current = newToads().map((td, i) => (kept[i].status === 'critter' ? kept[i] : td));
     trees.current = newTrees();
+    save({ fn: 'reset_base' });
     hero.current = { x: SPAWN.x, y: SPAWN.y, dir: 'down', frame: 0, walkMs: 0, grace: 0 };
     setWood(0);
     setBanner(null);
@@ -660,6 +819,7 @@ export function BaseScreen() {
   const shack = building || stage === 'built' || stage === 'shop';
   const hutPic = !shack ? hutPicture(s) : shackPicture(building ? 1 - buildLeft / BUILD_MS : 1, s);
   items.push({ y: HUT_BOX.y + HUT_BOX.h - 4, key: 'hut', node: <Static key="hut" pic={hutPic} x={HUT.x} y={shack ? HUT.y - 8 : HUT.y} s={s} /> });
+  items.push({ y: SIGN.y, key: 'sign', node: <Static key="sign" pic={signPicture(s)} x={SIGN.x - 9} y={SIGN.y - 19} s={s} /> });
   items.push({ y: BUTCHER.y, key: 'butcher', node: <OldMan key="butcher" beat={npcBeat} hammer={building ? hammerBeat : null} s={s} /> });
   for (const tr of trees.current) {
     const left = tr.x - TREE_W / 2 + (tr.shake > 0 ? (Math.floor(tr.shake / 40) % 2 ? 1 : -1) : 0);
@@ -684,11 +844,11 @@ export function BaseScreen() {
   items.push({
     y: h.y,
     key: 'hero',
-    node: <Mover key="hero" pic={heroOwPicture(h.dir, chop.current ? (chop.current.ms < CHOP_MS / 2 ? 2 : 0) : h.frame, 0, s)} x={heroX} y={heroY} w={16} h={22} s={s} shadow blink={h.grace > 0} />,
+    node: <Mover key="hero" pic={heroOwPicture(h.dir, chop.current ? (chop.current.ms < CHOP_MS / 2 ? 2 : 0) : h.frame, player.look, s)} x={heroX} y={heroY} w={HERO_OW_W} h={HERO_OW_H} s={s} shadow blink={h.grace > 0} />,
   });
   items.sort((a, b) => a.y - b.y);
 
-  const ground = useMemo(() => groundPicture(s), [s]);
+  const ground = groundImage();
   const worldT = useDerivedValue(() => [{ translateX: -camX.value * s }, { translateY: -camY.value * s }]);
   const af = alertFoe.current;
   const alert = af == null ? null : af.kind === 'shroomie' ? { x: tx[af.id], y: ty[af.id], top: 16 } : { x: npcX, y: npcY, top: 22 };
@@ -713,13 +873,13 @@ export function BaseScreen() {
           {box ? (
             <Canvas style={{ width: box.w, height: box.h }}>
               <Group transform={worldT}>
-                <Picture picture={ground} />
+                {ground ? <BakedImage baked={ground} s={s} /> : null}
                 <WindLayer s={s} active={phase === 'roam' && !arena && !reduceMotion} />
                 {items.map((it) => it.node)}
                 {chop.current ? <Swipe dir={h.dir} hx={h.x} hy={h.y} s={s} /> : null}
                 {leaves.current.map((l, i) => (
                   <Group key={i} transform={[{ translateX: Math.round(l.x) * s }, { translateY: Math.round(l.y) * s }]} opacity={Math.min(1, l.life / 300)}>
-                    <Picture picture={leafPicture(s)} />
+                    <Picture picture={leafPicture(s, l.kind)} />
                   </Group>
                 ))}
                 {toads.current.map((td, i) =>
@@ -743,12 +903,12 @@ export function BaseScreen() {
             <View style={{ gap: 8 }}>
               <Framed depth={1}>
                 <View style={st.hudPanel}>
-                  <Text style={t.statSoft}>YOUR BASE</Text>
+                  <View style={st.baseTitle}>
+                    <Text style={t.statSoft}>YOUR BASE</Text>
+                    <SaveBadge status={saveStatus} />
+                  </View>
                   <View style={st.counters}>
-                    <View style={st.counter} accessibilityLabel={`${wood} wood`}>
-                      <Icon pic={logPicture(2)} w={28} h={18} />
-                      <Text style={t.stat}>{wood}</Text>
-                    </View>
+                    <CoinCounter coins={coins} />
                     <View style={st.counter} accessibilityLabel={`${wild} wild Shroomies`}>
                       <Icon pic={toadOwPicture(0, 0, false, 1)} w={16} h={16} />
                       <Text style={t.stat}>{wild}</Text>
@@ -760,6 +920,7 @@ export function BaseScreen() {
                   </View>
                 </View>
               </Framed>
+              <PackButton count={wood + meat} bump={packBump} full={packFull} onPress={() => setPack(true)} />
               {stage === 'quest' ? (
                 <QuestLog quests={[{ id: 'hut', title: "Rebuild the butcher's hut", giver: 'butcher', item: 'wood', have: wood, need: HUT_WOOD, turnIn: 'Bring it to him' }]} />
               ) : null}
@@ -799,6 +960,7 @@ export function BaseScreen() {
           <View style={StyleSheet.absoluteFill}>
             <BattleScreen
               key={battle.key}
+              you={player}
               encounter={
                 battle.foe.kind === 'butcher'
                   ? { look: 0, name: 'Old Man', kind: 'butcher' }
@@ -810,10 +972,31 @@ export function BaseScreen() {
         ) : null}
         {arena ? (
           <View style={StyleSheet.absoluteFill}>
-            <BattleScreen onExit={() => setArena(false)} />
+            <BattleScreen you={player} onExit={() => setArena(false)} />
           </View>
         ) : null}
         <FlashOverlay value={flash} />
+
+        {woods ? (
+          <View style={StyleSheet.absoluteFill}>
+            <WoodsScreen
+              player={player}
+              coins={coins}
+              itemCount={wood + meat}
+              groundMeat={groundMeat}
+              boarsBackAt={boarsBackAt}
+              packBump={packBump}
+              packFull={packFull}
+              onOpenPack={() => setPack(true)}
+              onHunt={onHunt}
+              onPickUp={onPickUp}
+              onLeave={() => travel(false)}
+              covered={pack}
+            />
+          </View>
+        ) : null}
+        {pack ? <InventorySheet carry={{ wood, meat }} bottom={insets.bottom + 14} onClose={() => setPack(false)} /> : null}
+        {wiping ? <LeafWipe progress={wipe} w={box?.w ?? 0} h={box?.h ?? 0} s={s} /> : null}
 
         {talk ? <Conversation key={talk.key} speaker={talk.speaker} script={talk.script} start={talk.start} bottom={insets.bottom + 14} onEnd={endTalk} /> : null}
 
@@ -843,32 +1026,6 @@ export function BaseScreen() {
 
 // ---------- Drawing pieces ----------
 
-function Static({ pic, x, y, s }: { pic: ReturnType<typeof housePicture>; x: number; y: number; s: number }) {
-  return (
-    <Group transform={[{ translateX: Math.round(x) * s }, { translateY: Math.round(y) * s }]}>
-      <Picture picture={pic} />
-    </Group>
-  );
-}
-
-// A sprite whose feet follow shared x/y, with a soft ink shadow under it.
-function Mover({ pic, x, y, w, h, s, shadow, blink }: { pic: ReturnType<typeof housePicture>; x: SharedValue<number>; y: SharedValue<number>; w: number; h: number; s: number; shadow?: boolean; blink?: boolean }) {
-  const transform = useDerivedValue(() => [{ translateX: Math.round(x.value - w / 2) * s }, { translateY: Math.round(y.value - h + 1) * s }]);
-  const shadowT = useDerivedValue(() => [{ translateX: Math.round(x.value - 5) * s }, { translateY: Math.round(y.value - 1) * s }]);
-  return (
-    <>
-      {shadow ? (
-        <Group transform={shadowT}>
-          <Oval x={0} y={0} width={10 * s} height={3 * s} color={colors.ink} opacity={0.14} />
-        </Group>
-      ) : null}
-      <Group transform={transform} opacity={blink ? 0.6 : 1}>
-        <Picture picture={pic} />
-      </Group>
-    </>
-  );
-}
-
 function Swipe({ dir, hx, hy, s }: { dir: Dir; hx: number; hy: number; s: number }) {
   const off = dir === 'left' ? { x: -16, y: -16 } : dir === 'right' ? { x: 4, y: -16 } : dir === 'up' ? { x: -4, y: -30 } : { x: -4, y: -8 };
   return (
@@ -887,18 +1044,22 @@ function Heart({ x, y, beat, s }: { x: SharedValue<number>; y: SharedValue<numbe
   );
 }
 
-function Bubble({ x, y, top, scale, s }: { x: SharedValue<number>; y: SharedValue<number>; top: number; scale: SharedValue<number>; s: number }) {
-  // Pops out of the top of the foe's head (top px above its feet), anchored at the tail.
-  const transform = useDerivedValue(() => {
-    const k = scale.value;
-    const ax = Math.round(x.value) * s;
-    const ay = Math.round(y.value - top) * s;
-    return [{ translateX: ax }, { translateY: ay }, { scale: k }, { translateX: -5.5 * s }, { translateY: -14 * s }];
-  });
+const SAVE_LABELS: Record<SaveStatus, string> = { offline: 'OFFLINE', loading: 'LOADING', saving: 'SAVING', saved: 'SAVED', error: 'NOT SAVED' };
+const SAVE_A11Y: Record<SaveStatus, string> = {
+  offline: 'Offline: progress is not saved',
+  loading: 'Loading your base',
+  saving: 'Saving',
+  saved: 'Progress saved',
+  error: "Couldn't save the last change",
+};
+
+// A quiet word beside "YOUR BASE" saying whether your progress is safe.
+function SaveBadge({ status }: { status: SaveStatus }) {
+  const warn = status === 'error' || status === 'offline';
   return (
-    <Group transform={transform}>
-      <Picture picture={bubblePicture(s)} />
-    </Group>
+    <Text style={[t.statSoft, { fontSize: 10, color: warn ? colors.ink : colors.inkSoft }]} accessibilityLabel={SAVE_A11Y[status]}>
+      · {SAVE_LABELS[status]}
+    </Text>
   );
 }
 
@@ -945,65 +1106,6 @@ function BuildBar({ left, camX, camY, s }: { left: number; camX: SharedValue<num
   );
 }
 
-function Icon({ pic, w, h }: { pic: ReturnType<typeof housePicture>; w: number; h: number }) {
-  return (
-    <Canvas style={{ width: w, height: h }}>
-      <Picture picture={pic} />
-    </Canvas>
-  );
-}
-
-// The battle swirl: spiral arms in lavender, then ink, sweep around until they cover the screen.
-function SwirlOverlay({ progress, w, h }: { progress: SharedValue<number>; w: number; h: number }) {
-  const arms = (lag: number, widthBoost: number) =>
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useDerivedValue(() => {
-      const path = Skia.PathBuilder.Make();
-      const p = Math.max(0, Math.min(1, (progress.value - lag) / (1 - lag)));
-      if (p <= 0 || w === 0) return path.detach();
-      const cx = w / 2;
-      const cy = h / 2;
-      const R = Math.hypot(w, h) * 0.6;
-      const N = 6;
-      const rot = p * Math.PI * 1.4;
-      const span = ((Math.PI * 2) / N) * Math.min(1, p * widthBoost);
-      const twist = 1.6 * (1 - p * 0.5);
-      for (let k = 0; k < N; k++) {
-        const a0 = (k * Math.PI * 2) / N + rot;
-        path.moveTo(cx, cy);
-        for (let i = 1; i <= 14; i++) {
-          const r = (R * i) / 14;
-          const a = a0 + (i / 14) * twist;
-          path.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-        }
-        for (let i = 14; i >= 1; i--) {
-          const r = (R * i) / 14;
-          const a = a0 + span + (i / 14) * twist;
-          path.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
-        }
-        path.close();
-      }
-      return path.detach();
-    });
-  const back = arms(0, 1.25);
-  const front = arms(0.18, 1.3);
-  const show = useAnimatedStyle(() => ({ opacity: progress.value > 0 ? 1 : 0 }));
-  if (!w) return null;
-  return (
-    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, show]}>
-      <Canvas style={{ width: w, height: h }}>
-        <Path path={back} color={colors.lavender} antiAlias={false} />
-        <Path path={front} color={colors.ink} antiAlias={false} />
-      </Canvas>
-    </Animated.View>
-  );
-}
-
-function FlashOverlay({ value }: { value: SharedValue<number> }) {
-  const style = useAnimatedStyle(() => ({ opacity: value.value }));
-  return <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.white }, style]} />;
-}
-
 const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.ink, alignItems: 'center' },
   column: { flex: 1, width: '100%', maxWidth: 560, backgroundColor: colors.mint },
@@ -1012,6 +1114,7 @@ const st = StyleSheet.create({
   hudPanel: { paddingHorizontal: 10, paddingVertical: 6, gap: 4 },
   counters: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   counter: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  baseTitle: { flexDirection: 'row', gap: 4, alignItems: 'center' },
   buildBar: { position: 'absolute', left: 0, top: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
   buildTrack: { flex: 1, height: 12, borderWidth: 2, borderColor: colors.ink, backgroundColor: colors.scroll },
   buildFill: { height: '100%', backgroundColor: colors.questGreen },
