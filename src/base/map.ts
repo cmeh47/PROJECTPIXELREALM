@@ -1,3 +1,4 @@
+import { treeVariant, type TreeKind } from '../sprites/overworld';
 // Your base: a meadow lot with your cottage, a path, a pond, choppable trees, four Shroomies
 // and the old butcher's ruined hut. All positions are art pixels; the map is 26 x 36 tiles of 16 px.
 
@@ -45,6 +46,24 @@ export const HUT_BOX = { x: HUT.x + 3, y: HUT.y + 20, w: 40, h: 13 };
 export const BUTCHER = { x: HUT.x + 12, y: HUT.y + 50 };
 
 // A small seeded generator, so the lot looks the same every time it loads.
+// Autumn groves: the Boar Woods are dotted with golden, red and purple trees (the base stays green). Each patch
+// of ground leans toward one kind, so they gather in little groves instead of a random speckle.
+// Uses its own seed, so tree positions never move. `variant` is the tree's green shape (0-2).
+export function groveVariant(t: Pt & { variant: number }, seed: number, mix = 0.45): number {
+  const kinds: TreeKind[] = ['gold', 'red', 'purple'];
+  const hash = (n: number) => {
+    const v = Math.sin(n) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  // Patches take turns: green, gold, red, purple, shifted a step each row so neighbors differ.
+  const cell = (Math.floor(t.x / 120) + Math.floor(t.y / 100) * 3 + seed) % 4;
+  const grove = cell === 0 ? null : kinds[cell - 1];
+  const r = hash(seed * 7.13 + t.x * 1.731 + t.y * 3.917);
+  if (grove && r < mix + 0.15) return treeVariant(grove, t.variant);
+  if (r > 0.9) return treeVariant(kinds[Math.floor((r - 0.9) * 30) % 3], t.variant);
+  return t.variant;
+}
+
 export function rng(seed: number) {
   let x = seed;
   return () => {

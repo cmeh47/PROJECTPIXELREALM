@@ -1,6 +1,6 @@
 import { Skia, type SkImage } from '@shopify/react-native-skia';
 
-import { bubbleGrid, heartGrid, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, shackGrid, stumpGrid, toadOverworld, treeGrid, type Dir } from '../sprites/overworld';
+import { bubbleGrid, heartGrid, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, shackGrid, stumpGrid, toadOverworld, treeGrid, type Dir, type TreeKind } from '../sprites/overworld';
 import { bagGrid, boarOverworld, coinGrid, meatGrid, signGrid } from '../sprites/boar';
 import { Grid, PAL, star } from '../sprites/pixel';
 import { heroOw, type HeroLook } from '../sprites/hero';
@@ -29,7 +29,7 @@ export const shackPicture = (progress: number, s: number) => {
 export const hammerPicture = (frame: number, s: number) => gridPicture(`ow-hammer-${frame}`, () => hammerGrid(frame), s);
 export const bubblePicture = (s: number) => gridPicture('ow-bubble', () => bubbleGrid(), s);
 export const heartPicture = (s: number) => gridPicture('ow-heart', () => heartGrid(), s);
-export const leafPicture = (s: number) => gridPicture('ow-leaf', () => leafGrid(), s);
+export const leafPicture = (s: number, kind: TreeKind = 'green') => gridPicture(`ow-leaf-${kind}`, () => leafGrid(kind), s);
 export const logPicture = (s: number) => gridPicture('ow-log', () => logGrid(), s);
 export const boarOwPicture = (frame: number, flip: boolean, s: number) => gridPicture(`ow-boar-${frame}-${flip ? 1 : 0}`, () => boarOverworld(frame, flip), s);
 export const meatPicture = (s: number) => gridPicture('ow-meat', () => meatGrid(), s);

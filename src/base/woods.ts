@@ -5,7 +5,7 @@
 // side, so you cross the whole wood, past every boar, to find him.
 import { colors } from '../theme';
 import type { Px } from './ground';
-import { rng, type Pt } from './map';
+import { groveVariant, rng, type Pt } from './map';
 
 export const WOODS_W = 40 * 16;
 export const WOODS_H = 26 * 16;
@@ -66,7 +66,7 @@ export const WOODS_TREES: WoodsTree[] = (() => {
     if (p.y < 40 || p.x > WOODS_W - 8) continue;
     out.push({ id: 0, ...p, variant: Math.floor(rand() * 3), border: false });
   }
-  return out.map((t, i) => ({ ...t, id: i }));
+  return out.map((t, i) => ({ ...t, id: i, variant: groveVariant(t, 3, 0.55) }));
 })();
 
 // The woods floor: the meadow's mint, thick with grass tufts, ferns and fallen leaves.
