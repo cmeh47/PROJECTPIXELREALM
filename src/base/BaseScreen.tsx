@@ -17,21 +17,25 @@ import {
   hammerPicture,
   hutPicture,
   leafPicture,
+  merchantOwPicture,
   oldManPicture,
   shackPicture,
   signPicture,
+  standPicture,
   stumpPicture,
   swipePicture,
   toadOwPicture,
   treePicture,
 } from './art';
-import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, SIGN, SPAWN, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
+import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, PUUL_POST, SIGN, SPAWN, STAND, STAND_BOX, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
-import { QuestLog } from './QuestLog';
+import { QuestLog, type Quest } from './QuestLog';
+import { faceToward, newFollower, stepFollower, type Follower } from './follow';
+import { MERCHANT_OW_H, MERCHANT_OW_W } from '../sprites/merchant';
 import type { Hero } from '../net/useHero';
 import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
 import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
-import { BUTCHER_SPEAKER, CRITTER_SCRIPT, butcherScript, critterSpeaker } from './npcs';
+import { BUTCHER_SPEAKER, CRITTER_SCRIPT, MERCHANT_SCRIPT, PUUL_SPEAKER, STAND_WOOD, butcherScript, critterSpeaker, type MerchantStage } from './npcs';
 import { CoinCounter, InventorySheet, MEAT_PRICE, PackButton, roomFor, type Carry } from './Inventory';
 import { WoodsScreen } from './WoodsScreen';
 import { BakedImage, WindLayer } from './WindLayer';
@@ -151,6 +155,15 @@ export function BaseScreen({ player }: { player: Hero }) {
   coveredRef.current = phase === 'battle' || arena || woods || pack;
   const [banner, setBanner] = useState<string | null>(null);
   const [talk, setTalk] = useState<Talk | null>(null);
+  // Puul the merchant: lost in the Boar Woods until you save him (see npcs.ts MerchantStage).
+  const [merchant, setMerchantState] = useState<MerchantStage>('lost');
+  const merchantRef = useRef<MerchantStage>('lost');
+  const setMerchant = (m: MerchantStage) => {
+    merchantRef.current = m;
+    setMerchantState(m);
+  };
+  // Where he is on the base: following you in, then walking a route to his post by the stand.
+  const puul = useRef<Follower & { route: Pt[] }>({ ...newFollower(PUUL_POST), route: [] });
   const [stage, setStageState] = useState<ButcherStage>('hostile');
   const stageRef = useRef<ButcherStage>('hostile');
   const setStage = (b: ButcherStage) => {
@@ -161,7 +174,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   // World state, mutated by the game loop.
   const hero = useRef({ x: SPAWN.x, y: SPAWN.y, dir: 'down' as Dir, frame: 0, walkMs: 0, grace: 0 });
   // talk: walking over to speak with the butcher; the box opens on arrival.
-  const goal = useRef<{ to: Pt | null; holding: boolean; chop: number | null; talk?: boolean; downAt: number }>({ to: null, holding: false, chop: null, downAt: 0 });
+  const goal = useRef<{ to: Pt | null; holding: boolean; chop: number | null; talk?: boolean; talkPuul?: boolean; downAt: number }>({ to: null, holding: false, chop: null, downAt: 0 });
   // Where a held finger rests on screen, in art pixels. The hero keeps walking toward it while the camera follows.
   const finger = useRef<Pt | null>(null);
   const chop = useRef<{ tree: number; ms: number; swing: number } | null>(null);
@@ -182,6 +195,8 @@ export function BaseScreen({ player }: { player: Hero }) {
   const npcX = useSharedValue(BUTCHER.x);
   const npcY = useSharedValue(BUTCHER.y);
   const npcBeat = useSharedValue(0);
+  const puulX = useSharedValue(PUUL_POST.x);
+  const puulY = useSharedValue(PUUL_POST.y);
   const hammerBeat = useSharedValue(0);
   const bubble = useSharedValue(0);
   const swirl = useSharedValue(0);
@@ -209,6 +224,9 @@ export function BaseScreen({ player }: { player: Hero }) {
     if (inPond({ x, y }, 3)) return true;
     if (x > HUT_BOX.x && x < HUT_BOX.x + HUT_BOX.w && y > HUT_BOX.y && y < HUT_BOX.y + HUT_BOX.h) return true;
     if (Math.abs(x - BUTCHER.x) < 6 && y > BUTCHER.y - 5 && y < BUTCHER.y + 3) return true;
+    if (merchantRef.current === 'open' && x > STAND_BOX.x && x < STAND_BOX.x + STAND_BOX.w && y > STAND_BOX.y && y < STAND_BOX.y + STAND_BOX.h) return true;
+    const pu = puul.current;
+    if (merchantRef.current !== 'lost' && merchantRef.current !== 'escort' && !pu.route.length && Math.abs(x - pu.x) < 6 && y > pu.y - 5 && y < pu.y + 3) return true;
     for (const tr of trees.current) {
       const r = tr.felledAt ? 5 : 6;
       if (Math.abs(x - tr.x) < r && y > tr.y - 5 && y < tr.y + 3) return true;
@@ -351,9 +369,52 @@ export function BaseScreen({ player }: { player: Hero }) {
     openTalk(BUTCHER_SPEAKER, butcherScript(carryRef.current.meat, MEAT_PRICE), start);
     force();
   };
+  // Talking to Puul at his post picks up wherever you are with him.
+  const talkToPuul = () => {
+    const h = hero.current;
+    const pu = puul.current;
+    const dx = pu.x - h.x;
+    const dy = pu.y - h.y;
+    h.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+    h.frame = 0;
+    faceToward(pu, h);
+    const m = merchantRef.current;
+    openTalk(PUUL_SPEAKER, MERCHANT_SCRIPT, m === 'home' ? 'ask' : m === 'stand' ? (woodRef.current >= STAND_WOOD ? 'ready' : 'quest') : 'open');
+    force();
+  };
+  // Puul walks from wherever he is to his post: along the path, then over to the plot.
+  const sendPuulToPost = () => {
+    const pu = puul.current;
+    pu.route = pu.x > 250 ? [{ x: 250, y: 238 }, { x: 168, y: 232 }, PUUL_POST] : [PUUL_POST];
+  };
+  const endMerchantTalk = (end?: string) => {
+    const pu = puul.current;
+    if (end === 'accept') {
+      setMerchant('stand');
+      save({ fn: 'merchant_step', step: 'accept' });
+      haptic('success');
+      pop('NEW QUEST!', colors.butter, pu.x, pu.y - 30, { big: true });
+      setTimeout(() => setBanner(`Quest: build Puul's merchant stand. Bring him ${STAND_WOOD} wood.`), 500);
+    } else if (end === 'handin') {
+      setWood((w) => w - STAND_WOOD);
+      setMerchant('open');
+      save({ fn: 'merchant_step', step: 'handin' });
+      haptic('success');
+      pop(`-${STAND_WOOD} WOOD`, colors.butter, pu.x, pu.y - 30);
+      for (let k = 0; k < 12; k++) leaves.current.push({ x: STAND.x + 22 + rand(-18, 18), y: STAND.y + rand(10, 30), vx: rand(-30, 30), vy: rand(-50, -10), life: 800 });
+      setTimeout(() => pop('STAND BUILT!', colors.butter, STAND.x + 22, STAND.y - 2, { big: true }), 350);
+      setTimeout(() => setBanner("Puul's stand is open for business!"), 900);
+    }
+    if (merchantRef.current !== 'escort' && (pu.x !== PUUL_POST.x || pu.y !== PUUL_POST.y)) sendPuulToPost();
+  };
   const endTalk = (end?: string) => {
+    const who = talk?.speaker.key;
     setTalk(null);
     talking.current = false;
+    if (who === 'puul') {
+      endMerchantTalk(end);
+      return;
+    }
     if (end === 'fight') startEncounter({ kind: 'butcher' });
     else if (end === 'accept') {
       setStage('quest');
@@ -399,6 +460,7 @@ export function BaseScreen({ player }: { player: Hero }) {
     wipe.value = withTiming(1, { duration: WIPE_MS, easing: Easing.linear });
     await wait(WIPE_MS / 2);
     setWoods(toWoods);
+    if (!toWoods && merchantRef.current === 'escort') setTimeout(arriveHome, WIPE_MS / 2);
     if (!toWoods) {
       // Back on the base, just inside the gap, facing home.
       const h = hero.current;
@@ -413,6 +475,30 @@ export function BaseScreen({ player }: { player: Hero }) {
     await wait(WIPE_MS / 2 + 20);
     wipe.value = 0;
     setWiping(false);
+  };
+  // Back on the base with Puul in tow: the escort is done. He looks round and asks about a stand.
+  const arriveHome = () => {
+    const h = hero.current;
+    const pu = puul.current;
+    Object.assign(pu, newFollower({ x: h.x + 14, y: h.y }, 'left'), { route: [] });
+    puulX.value = pu.x;
+    puulY.value = pu.y;
+    setMerchant('home');
+    save({ fn: 'merchant_step', step: 'home' });
+    setTimeout(() => {
+      haptic('success');
+      pop('QUEST COMPLETE!', colors.mint, h.x, h.y - 34, { big: true });
+    }, 450);
+    setTimeout(() => {
+      faceToward(pu, h);
+      hero.current.dir = 'right';
+      openTalk(PUUL_SPEAKER, MERCHANT_SCRIPT, 'home');
+      force();
+    }, 1300);
+  };
+  const onRescued = () => {
+    setMerchant('escort');
+    save({ fn: 'merchant_step', step: 'rescued' });
   };
   const onHunt = (idx: number, perfect: boolean) => {
     setGroundMeat((m) => m + (perfect ? 2 : 1));
@@ -472,12 +558,21 @@ export function BaseScreen({ player }: { player: Hero }) {
     const next: ButcherStage = b.butcher === 'building' && b.buildDone ? 'built' : b.butcher;
     // If this device's timer finished a moment before the server's, keep showing the finished shack.
     if (!(next === 'building' && stageRef.current === 'built')) setStage(next);
+    // Puul. Mid-escort on a fresh load, he's on the base with you: he arrives as you load in.
+    const was = merchantRef.current;
+    if (b.merchant && b.merchant !== was) {
+      setMerchant(b.merchant);
+      if (b.merchant === 'escort') setTimeout(() => !woodsRef.current && arriveHome(), 400);
+      else if (was === 'lost' || was === 'escort') Object.assign(puul.current, newFollower(PUUL_POST), { route: [] });
+    }
     force();
   };
   const { status: saveStatus, send: save } = useBaseSave(applySaved);
   const saveRef = useRef(save);
   saveRef.current = save;
 
+  const woodsRef = useRef(woods);
+  woodsRef.current = woods;
   const travelRef = useRef(travel);
   travelRef.current = travel;
   // 1 while the leaf wipe runs, so the gap doesn't trigger twice.
@@ -592,6 +687,13 @@ export function BaseScreen({ player }: { player: Hero }) {
                 repaint = true;
               }
             }
+            // Arrived in front of Puul?
+            if (g.talkPuul && Math.hypot(puul.current.x - h.x, puul.current.y - h.y) < 20 && (dist < 3 || !moving)) {
+              g.talkPuul = false;
+              g.to = null;
+              moving = false;
+              talkToPuul();
+            }
             // Arrived in front of the butcher?
             if (g.talk && Math.hypot(BUTCHER.x - h.x, BUTCHER.y - h.y) < 20 && (dist < 3 || !moving)) {
               g.talk = false;
@@ -663,6 +765,35 @@ export function BaseScreen({ player }: { player: Hero }) {
           }
         }
 
+        // Puul walking to his post.
+        const pu = puul.current;
+        if (pu.route.length) {
+          const to = pu.route[0];
+          const dx = to.x - pu.x;
+          const dy = to.y - pu.y;
+          const d = Math.hypot(dx, dy);
+          const step = (HERO_SPEED * 0.8 * dt) / 1000;
+          if (d <= step) {
+            pu.x = to.x;
+            pu.y = to.y;
+            pu.route.shift();
+            if (!pu.route.length) {
+              pu.dir = 'down';
+              pu.frame = 0;
+              repaint = true;
+            }
+          } else {
+            pu.x += (dx / d) * step;
+            pu.y += (dy / d) * step;
+            const dir: Dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
+            pu.walkMs += dt;
+            const f = Math.floor(pu.walkMs / STEP_MS) % 4;
+            if (dir !== pu.dir || f !== pu.frame) repaint = true;
+            pu.dir = dir;
+            pu.frame = f;
+          }
+        }
+
         // Trees: shake and flash decay, regrowth.
         for (const tr of trees.current) {
           if (tr.shake > 0 || tr.flash > 0) {
@@ -696,6 +827,8 @@ export function BaseScreen({ player }: { player: Hero }) {
       put(hammerBeat, Math.floor(now / 250) % 2);
       put(heroX, h.x);
       put(heroY, h.y);
+      put(puulX, puul.current.x);
+      put(puulY, puul.current.y);
       toads.current.forEach((td, i) => {
         put(tx[i], td.x);
         put(ty[i], td.y);
@@ -741,6 +874,27 @@ export function BaseScreen({ player }: { player: Hero }) {
       openTalk(critterSpeaker(pal.name, pal.look), CRITTER_SCRIPT, 'hi');
       force();
       return;
+    }
+    // Puul at his post? Walk up to him, then talk.
+    const pu = puul.current;
+    const m = merchantRef.current;
+    if ((m === 'home' || m === 'stand' || m === 'open') && !pu.route.length && Math.abs(p.x - pu.x) < 10 && p.y > pu.y - 22 && p.y < pu.y + 4) {
+      const h = hero.current;
+      if (Math.hypot(pu.x - h.x, pu.y - h.y) < 20) {
+        goal.current = { to: null, holding: false, chop: null, downAt: g.downAt };
+        talkToPuul();
+        return;
+      }
+      const spots = [
+        { x: pu.x, y: pu.y + 12 },
+        { x: pu.x - 14, y: pu.y + 1 },
+        { x: pu.x + 14, y: pu.y + 1 },
+      ].filter((q) => !blocked(q.x, q.y));
+      spots.sort((a, b) => Math.hypot(a.x - h.x, a.y - h.y) - Math.hypot(b.x - h.x, b.y - h.y));
+      if (spots.length) {
+        goal.current = { to: spots[0], holding: false, chop: null, talkPuul: true, downAt: g.downAt };
+        return;
+      }
     }
     // The butcher? Walk up to him, then talk.
     if (Math.abs(p.x - BUTCHER.x) < 10 && p.y > BUTCHER.y - 22 && p.y < BUTCHER.y + 4) {
@@ -820,6 +974,14 @@ export function BaseScreen({ player }: { player: Hero }) {
   const hutPic = !shack ? hutPicture(s) : shackPicture(building ? 1 - buildLeft / BUILD_MS : 1, s);
   items.push({ y: HUT_BOX.y + HUT_BOX.h - 4, key: 'hut', node: <Static key="hut" pic={hutPic} x={HUT.x} y={shack ? HUT.y - 8 : HUT.y} s={s} /> });
   items.push({ y: SIGN.y, key: 'sign', node: <Static key="sign" pic={signPicture(s)} x={SIGN.x - 9} y={SIGN.y - 19} s={s} /> });
+  // Puul's plot (stakes and a sign) once he's moved in, and the stand once it's built.
+  if (merchant === 'home' || merchant === 'stand' || merchant === 'open') {
+    items.push({ y: STAND.y + 34, key: 'stand', node: <Static key="stand" pic={standPicture(merchant === 'open', s)} x={STAND.x} y={STAND.y} s={s} /> });
+  }
+  if (merchant !== 'lost' && !(merchant === 'escort' && woods)) {
+    const pu = puul.current;
+    items.push({ y: pu.y, key: 'puul', node: <Mover key="puul" pic={merchantOwPicture(pu.dir, pu.frame, false, s)} x={puulX} y={puulY} w={MERCHANT_OW_W} h={MERCHANT_OW_H} s={s} shadow /> });
+  }
   items.push({ y: BUTCHER.y, key: 'butcher', node: <OldMan key="butcher" beat={npcBeat} hammer={building ? hammerBeat : null} s={s} /> });
   for (const tr of trees.current) {
     const left = tr.x - TREE_W / 2 + (tr.shake > 0 ? (Math.floor(tr.shake / 40) % 2 ? 1 : -1) : 0);
@@ -847,6 +1009,11 @@ export function BaseScreen({ player }: { player: Hero }) {
     node: <Mover key="hero" pic={heroOwPicture(h.dir, chop.current ? (chop.current.ms < CHOP_MS / 2 ? 2 : 0) : h.frame, player.look, s)} x={heroX} y={heroY} w={HERO_OW_W} h={HERO_OW_H} s={s} shadow blink={h.grace > 0} />,
   });
   items.sort((a, b) => a.y - b.y);
+
+  const quests: Quest[] = [];
+  if (stage === 'quest') quests.push({ id: 'hut', title: "Rebuild the butcher's hut", giver: 'butcher', item: 'wood', have: wood, need: HUT_WOOD, turnIn: 'Bring it to him' });
+  if (merchant === 'escort') quests.push({ id: 'escort', title: 'Escort Puul home', giver: 'merchant', item: 'go', have: 0, need: 1, turnIn: 'Lead him out the west gap' });
+  if (merchant === 'stand') quests.push({ id: 'stand', title: "Build Puul's stand", giver: 'merchant', item: 'wood', have: wood, need: STAND_WOOD, turnIn: 'Bring it to him' });
 
   const ground = groundImage();
   const worldT = useDerivedValue(() => [{ translateX: -camX.value * s }, { translateY: -camY.value * s }]);
@@ -921,9 +1088,7 @@ export function BaseScreen({ player }: { player: Hero }) {
                 </View>
               </Framed>
               <PackButton count={wood + meat} bump={packBump} full={packFull} onPress={() => setPack(true)} />
-              {stage === 'quest' ? (
-                <QuestLog quests={[{ id: 'hut', title: "Rebuild the butcher's hut", giver: 'butcher', item: 'wood', have: wood, need: HUT_WOOD, turnIn: 'Bring it to him' }]} />
-              ) : null}
+              {quests.length ? <QuestLog quests={quests} /> : null}
             </View>
             <View style={{ gap: 6, alignItems: 'flex-end' }}>
               <Pressable accessibilityRole="button" accessibilityLabel={`Visitors: 1 of ${MAX_VISITORS}. Invite friends`} onPress={() => setInvite(true)} hitSlop={8}>
@@ -992,6 +1157,9 @@ export function BaseScreen({ player }: { player: Hero }) {
               onPickUp={onPickUp}
               onLeave={() => travel(false)}
               covered={pack}
+              merchant={merchant}
+              onRescued={onRescued}
+              quests={quests}
             />
           </View>
         ) : null}

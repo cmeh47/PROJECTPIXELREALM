@@ -9,7 +9,9 @@ import { colors, fonts } from '../theme';
 import { haptic, PixelIcon, SegBar, styles as t } from '../ui/pixel';
 import { logPicture } from './art';
 
-export type Quest = { id: string; title: string; giver: 'butcher'; item: 'wood'; have: number; need: number; turnIn: string };
+// item 'wood': bring `need` wood (a bar fills as you gather it). 'go': a task with no count, like
+// leading someone home; `turnIn` is the step to take, shown under the title.
+export type Quest = { id: string; title: string; giver: 'butcher' | 'merchant'; item: 'wood' | 'go'; have: number; need: number; turnIn: string };
 
 // The quest log: a little parchment scroll under the base panel. Tap its header to roll it up to
 // a single band, and again to unroll it. It's only on screen while you have a quest.
@@ -53,6 +55,22 @@ function QuestEntry({ q }: { q: Quest }) {
   const face = useMemo(() => gridPicture(`quest-giver-${q.giver}`, foePortrait(q.giver), 1), [q.giver]);
   const have = Math.min(q.have, q.need);
   const ready = have >= q.need;
+  if (q.item === 'go') {
+    return (
+      <View style={st.entry} accessibilityLabel={`${q.title}. ${q.turnIn}.`}>
+        <View style={st.rule} />
+        <View style={st.titleRow}>
+          <View style={st.face}>
+            <Canvas style={{ width: 20, height: 20 }}>
+              <Picture picture={face} />
+            </Canvas>
+          </View>
+          <Text style={st.title}>{q.title}</Text>
+        </View>
+        <Text style={st.step}>{q.turnIn}</Text>
+      </View>
+    );
+  }
   return (
     <View style={st.entry} accessibilityLabel={`${q.title}. Wood ${have} of ${q.need}.${ready ? ` ${q.turnIn}.` : ''}`}>
       <View style={st.rule} />
@@ -116,5 +134,6 @@ const st = StyleSheet.create({
   face: { width: 24, height: 24, borderWidth: 2, borderColor: colors.ink, backgroundColor: colors.sky, alignItems: 'center', justifyContent: 'center' },
   title: { flex: 1, fontFamily: fonts.heading, fontSize: 14, lineHeight: 17, color: colors.ink },
   goal: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  step: { fontFamily: fonts.body, fontSize: 12, lineHeight: 16, color: colors.inkSoft },
   ready: { alignSelf: 'flex-start', fontFamily: fonts.stat, fontSize: 10, lineHeight: 13, color: colors.ink, backgroundColor: colors.mint, borderWidth: 2, borderColor: colors.ink, paddingHorizontal: 4 },
 });

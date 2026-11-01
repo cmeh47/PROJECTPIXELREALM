@@ -12,11 +12,16 @@ import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
 import { TREE_H, TREE_W, type Dir } from '../sprites/overworld';
 import { colors } from '../theme';
 import { Framed, haptic, styles as t } from '../ui/pixel';
-import { bake, boarOwPicture, dizzyPicture, heroOwPicture, meatPicture, tapRingPicture, treePicture, type Baked } from './art';
+import { bake, boarOwPicture, dizzyPicture, heroOwPicture, meatPicture, merchantOwPicture, tapRingPicture, treePicture, type Baked } from './art';
+import { Conversation } from './Conversation';
+import { faceToward, newFollower, stepFollower, type Follower } from './follow';
+import { MERCHANT_SCRIPT, MERCHANT_SPEAKER, PUUL_SPEAKER, type MerchantStage } from './npcs';
+import { QuestLog, type Quest } from './QuestLog';
+import { MERCHANT_OW_H, MERCHANT_OW_W } from '../sprites/merchant';
 import { CoinCounter, PackButton } from './Inventory';
 import { Bubble, FlashOverlay, Mover, Static, SwirlOverlay } from './pieces';
 import { BakedImage } from './WindLayer';
-import { BOAR_HOMES, ENTRY, ROAM, WEST_GAP, WOODS_H, WOODS_TREES, WOODS_W, woodsGround } from './woods';
+import { BOAR_HOMES, CLEARING, ENTRY, ROAM, WEST_GAP, WOODS_H, WOODS_TREES, WOODS_W, woodsGround } from './woods';
 import type { Pt } from './map';
 
 // ---------- Tuning ----------
@@ -32,13 +37,20 @@ const COOL_MS = 1800; // before a boar that has calmed down can spot you again
 const TOUCH = 10;
 const GRACE_MS = 2500;
 const PICK_RANGE = 14;
+const MEET_RANGE = 60; // walking this close to the lost merchant sets off his cry for help
+const CALL_RANGE = 170; // within this, he shouts every few seconds so you can find him
+const CALL_MS = 4200;
+const CIRCLE_MS = 5200; // one lap of the boars round him
+const RESCUE_PACK = ['Bristleback Boar', 'Old Tusker', 'Bristleback Boar'];
 
 const BOAR_NAMES = ['Bristleback Boar', 'Bristleback Boar', 'Old Tusker'];
 
 type Mode = 'gone' | 'idle' | 'trot' | 'alert' | 'charge' | 'skid' | 'dizzy';
 type Boar = { id: number; home: Pt; x: number; y: number; flip: boolean; frame: number; mode: Mode; t: number; to: Pt; dir: Pt; left: number; cool: number; anim: number };
 type Drop = { id: number; x: number; y: number };
-type Phase = 'roam' | 'alert' | 'swirl' | 'battle';
+type Phase = 'roam' | 'alert' | 'swirl' | 'battle' | 'talk';
+// The merchant in the woods: lost and circled by boars, calmed down after the rescue, or following you.
+type Puul = Follower & { mode: 'lost' | 'calm' | 'follow' | 'gone' };
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
@@ -69,13 +81,17 @@ export type WoodsProps = {
   onPickUp: (n: number) => boolean;
   onLeave: () => void;
   covered: boolean; // the inventory sheet or the leaf wipe is over the woods
+  merchant: MerchantStage;
+  // After the rescue, once Puul says he'll follow you home.
+  onRescued: () => void;
+  quests: Quest[];
 };
 
 // The Boar Woods. Same controls as the base: hold to walk, tap to walk somewhere, tap meat to pick
 // it up. A boar that spots you paws the ground and charges in a straight line: step aside and it
 // skids past, dizzy, so the fight opens with it Broken; let it reach you and the fight starts as is.
 export function WoodsScreen(props: WoodsProps) {
-  const { player, coins, itemCount, groundMeat, boarsBackAt, packBump, packFull, onOpenPack, onHunt, onPickUp, onLeave, covered } = props;
+  const { player, coins, itemCount, groundMeat, boarsBackAt, packBump, packFull, onOpenPack, onHunt, onPickUp, onLeave, covered, merchant, onRescued, quests } = props;
   const insets = useSafeAreaInsets();
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   const s = box ? Math.max(2, Math.floor(box.w / 190)) : 2;
@@ -91,16 +107,39 @@ export function WoodsScreen(props: WoodsProps) {
     phaseRef.current = p;
     setPhaseState(p);
   };
+  // id -1 is the rescue: the three boars circling Puul, with Puul fighting beside you.
   const [battle, setBattle] = useState<{ id: number; dizzy: boolean; key: number } | null>(null);
+  const [talk, setTalk] = useState<{ start: string; key: number } | null>(null);
+  // Met him already (the rescue started, then you fled or lost): his plea is shorter next time.
+  const met = useRef(false);
+  const [metState, setMet] = useState(false);
   const [pops, setPops] = useState<Pop[]>([]);
   const [hint, setHint] = useState<string | null>(null);
   // The tip appears a moment after you arrive, once the wipe has cleared.
   useEffect(() => {
-    const id = setTimeout(() => setHint((h) => h ?? 'Boars charge when they spot you. Step aside and they skid past, dizzy. Tap meat to pick it up. Walk west to go home.'), 600);
+    const id = setTimeout(
+      () =>
+        setHint(
+          (h) =>
+            h ??
+            (merchant === 'escort'
+              ? 'Puul is right behind you. Lead him out through the west gap to your base.'
+              : 'Boars charge when they spot you. Step aside and they skid past, dizzy. Tap meat to pick it up. Walk west to go home.'),
+        ),
+      600,
+    );
     return () => clearTimeout(id);
   }, []);
   const coveredRef = useRef(false);
   coveredRef.current = covered || phase === 'battle';
+  const puul = useRef<Puul>(
+    merchant === 'lost'
+      ? { ...newFollower(CLEARING), mode: 'lost' }
+      : merchant === 'escort'
+        ? { ...newFollower({ x: ENTRY.x + 2, y: ENTRY.y - 12 }, 'right'), mode: 'follow' }
+        : { ...newFollower(CLEARING), mode: 'gone' },
+  );
+  const circle = useRef({ t: 0, call: CALL_MS / 2 });
 
   const hero = useRef({ x: ENTRY.x, y: ENTRY.y, dir: 'right' as Dir, frame: 0, walkMs: 0, grace: 0 });
   const goal = useRef<{ to: Pt | null; holding: boolean; pick: number | null; downAt: number }>({ to: null, holding: false, pick: null, downAt: 0 });
@@ -114,6 +153,8 @@ export function WoodsScreen(props: WoodsProps) {
     Array.from({ length: groundMeat }, (_, i) => ({ id: dropId.current++, x: 70 + (i % 4) * 7, y: ENTRY.y - 16 + Math.floor(i / 4) * 6 })),
   );
   const tapAt = useRef<{ x: number; y: number; ms: number } | null>(null);
+  const circleBeat = useRef(0);
+  const metRef = met;
   const alertBoar = useRef<number | null>(null);
 
   const heroX = useSharedValue(ENTRY.x);
@@ -122,6 +163,11 @@ export function WoodsScreen(props: WoodsProps) {
   const camY = useSharedValue(0);
   const bx = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
   const by = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
+  const px = useSharedValue(puul.current.x);
+  const py = useSharedValue(puul.current.y);
+  const cx = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
+  const cy = [useSharedValue(0), useSharedValue(0), useSharedValue(0)];
+  const helpBubble = useSharedValue(0);
   const bubble = useSharedValue(0);
   const swirl = useSharedValue(0);
   const flash = useSharedValue(0);
@@ -169,7 +215,97 @@ export function WoodsScreen(props: WoodsProps) {
     [bubble, flash, swirl],
   );
 
+  // ---------- Puul's rescue ----------
+  // You walk into the clearing: he spots you, a "!" pops over him, and his plea opens.
+  const meetPuul = useCallback(() => {
+    if (phaseRef.current !== 'roam') return;
+    const h = hero.current;
+    setPhase('talk');
+    setHint(null);
+    goal.current = { to: null, holding: false, pick: null, downAt: 0 };
+    finger.current = null;
+    h.dir = facing(CLEARING.x - h.x, CLEARING.y - h.y);
+    h.frame = 0;
+    faceToward(puul.current, h);
+    haptic('heavy');
+    helpBubble.value = withSequence(withTiming(1.3, { duration: 110, easing: Easing.out(Easing.quad) }), withTiming(1, { duration: 90 }));
+    force();
+    setTimeout(() => {
+      helpBubble.value = 0;
+      setTalk({ start: met.current ? 'again' : 'help', key: Date.now() });
+    }, 650);
+  }, [helpBubble]);
+
+  const startRescue = async () => {
+    met.current = true;
+    setMet(true);
+    setPhase('swirl');
+    haptic('heavy');
+    swirl.value = 0;
+    swirl.value = withTiming(1, { duration: 900, easing: Easing.in(Easing.quad) });
+    await wait(920);
+    flash.value = 1;
+    setBattle({ id: -1, dizzy: false, key: Date.now() });
+    setPhase('battle');
+    swirl.value = 0;
+    flash.value = withTiming(0, { duration: 420, easing: Easing.out(Easing.quad) });
+  };
+
+  const endTalk = (end?: string) => {
+    setTalk(null);
+    if (end === 'fight') {
+      void startRescue();
+      return;
+    }
+    if (end === 'follow') {
+      // He falls in behind you.
+      const p = puul.current;
+      p.mode = 'follow';
+      p.trail = [];
+      onRescued();
+      haptic('success');
+      pop('NEW QUEST!', colors.butter, p.x, p.y - 30, { big: true });
+      setTimeout(() => setHint('Quest: escort Puul home. Lead him out through the west gap.'), 500);
+    }
+    setPhase('roam');
+    force();
+  };
+
+  const endRescue = async (result: BattleResult) => {
+    flash.value = withTiming(1, { duration: 200 });
+    await wait(220);
+    setBattle(null);
+    const h = hero.current;
+    const p = puul.current;
+    if (result === 'won') {
+      // The boars bolt. Once the flash clears, he catches his breath and thanks you.
+      p.mode = 'calm';
+      faceToward(p, h);
+      setPhase('talk');
+      setTimeout(() => setTalk({ start: 'saved', key: Date.now() }), 650);
+    } else {
+      if (result === 'fled') {
+        // Back out of the clearing the way you came in.
+        h.x = CLEARING.x;
+        h.y = CLEARING.y + MEET_RANGE + 18;
+        h.dir = 'up';
+      } else {
+        h.x = ENTRY.x;
+        h.y = ENTRY.y;
+        h.dir = 'right';
+        setTimeout(() => setHint('You come to at the edge of the woods. The stranger is still out there, shouting for help.'), 200);
+      }
+      h.grace = GRACE_MS;
+      setPhase('roam');
+    }
+    heroX.value = h.x;
+    heroY.value = h.y;
+    force();
+    flash.value = withTiming(0, { duration: 380 });
+  };
+
   const endBattle = async (result: BattleResult, info: BattleInfo) => {
+    if (battle?.id === -1) return endRescue(result);
     const id = battle?.id;
     flash.value = withTiming(1, { duration: 200 });
     await wait(220);
@@ -209,6 +345,7 @@ export function WoodsScreen(props: WoodsProps) {
         h.y = ENTRY.y;
         h.dir = 'right';
         h.grace = GRACE_MS;
+        if (puul.current.mode === 'follow') Object.assign(puul.current, newFollower({ x: ENTRY.x + 2, y: ENTRY.y - 12 }, 'right'));
         b.mode = 'idle';
         b.x = b.home.x;
         b.y = b.home.y;
@@ -434,6 +571,47 @@ export function WoodsScreen(props: WoodsProps) {
         }
       }
 
+      // Puul: circled by boars and calling for help, or walking behind you.
+      const p = puul.current;
+      if (p.mode === 'lost') {
+        const c = circle.current;
+        c.t += dt;
+        c.call -= dt;
+        const dMeet = Math.hypot(h.x - CLEARING.x, h.y - CLEARING.y);
+        // He turns to keep an eye on the nearest boar.
+        const lap = (c.t / CIRCLE_MS) * Math.PI * 2;
+        const near = { x: CLEARING.x + Math.cos(lap) * 24, y: CLEARING.y + Math.sin(lap) * 14 };
+        const before = p.dir;
+        faceToward(p, near);
+        if (p.dir === 'up') p.dir = near.x > p.x ? 'right' : 'left';
+        if (p.dir !== before) repaint = true;
+        if (phaseRef.current === 'roam') {
+          if (c.call <= 0 && dMeet < CALL_RANGE) {
+            c.call = CALL_MS;
+            pop(metRef.current ? 'PLEASE!' : 'HELP!', colors.vellum, CLEARING.x, CLEARING.y - 30);
+          }
+          if (dMeet < MEET_RANGE && h.grace <= 0) meetPuul();
+        }
+      } else if (p.mode === 'follow' && phaseRef.current === 'roam') {
+        if (stepFollower(p, h, HERO_SPEED * 1.05, dt)) repaint = true;
+      }
+      put(px, p.x);
+      put(py, p.y);
+      if (p.mode === 'lost') {
+        const lap = (circle.current.t / CIRCLE_MS) * Math.PI * 2;
+        for (let k = 0; k < 3; k++) {
+          const a = lap + (k * Math.PI * 2) / 3;
+          put(cx[k], CLEARING.x + Math.cos(a) * 26);
+          put(cy[k], CLEARING.y + 3 + Math.sin(a) * 15);
+        }
+        // Their trot frames and which way they face only change a few times a second.
+        const tick8 = Math.floor(now / 125);
+        if (tick8 !== circleBeat.current) {
+          circleBeat.current = tick8;
+          repaint = true;
+        }
+      }
+
       put(starBeat, Math.floor(now / 250) % 4);
       put(heroX, h.x);
       put(heroY, h.y);
@@ -464,6 +642,19 @@ export function WoodsScreen(props: WoodsProps) {
     const p = toWorld(e);
     const g = goal.current;
     g.downAt = Date.now();
+    // Puul, following you? He has a word for you.
+    const pl = puul.current;
+    if (pl.mode === 'follow' && Math.abs(p.x - pl.x) < 10 && p.y > pl.y - 20 && p.y < pl.y + 4) {
+      const h = hero.current;
+      h.dir = facing(pl.x - h.x, pl.y - h.y);
+      h.frame = 0;
+      faceToward(pl, h);
+      goal.current = { to: null, holding: false, pick: null, downAt: g.downAt };
+      setPhase('talk');
+      setTalk({ start: 'escort', key: Date.now() });
+      force();
+      return;
+    }
     // Meat? Walk over and pick it up.
     const meat = drops.current.find((d) => Math.abs(p.x - d.x) < 10 && p.y > d.y - 12 && p.y < d.y + 6);
     if (meat) {
@@ -511,6 +702,25 @@ export function WoodsScreen(props: WoodsProps) {
     if (b.mode === 'gone') return;
     items.push({ y: b.y, key: `b${b.id}`, node: <Mover key={`b${b.id}`} pic={boarOwPicture(b.frame, b.flip, s)} x={bx[i]} y={by[i]} w={BOAR_OW_W} h={BOAR_OW_H} s={s} shadow /> });
   });
+  const pl = puul.current;
+  if (pl.mode !== 'gone') {
+    const scared = pl.mode === 'lost';
+    items.push({
+      y: pl.y,
+      key: 'puul',
+      node: <Mover key="puul" pic={merchantOwPicture(pl.dir, scared ? Math.floor(circleBeat.current / 2) % 2 : pl.frame, scared, s)} x={px} y={py} w={MERCHANT_OW_W} h={MERCHANT_OW_H} s={s} shadow />,
+    });
+  }
+  if (pl.mode === 'lost') {
+    // The three boars trotting round him. Each faces the way it's running.
+    const lap = (circleBeat.current * 125 * Math.PI * 2) / CIRCLE_MS;
+    for (let k = 0; k < 3; k++) {
+      const a = lap + (k * Math.PI * 2) / 3;
+      const runsRight = -Math.sin(a) > 0;
+      const yy = CLEARING.y + 3 + Math.sin(a) * 15;
+      items.push({ y: yy, key: `cb${k}`, node: <Mover key={`cb${k}`} pic={boarOwPicture((circleBeat.current + k) % 2 ? 2 : 1, runsRight, s)} x={cx[k]} y={cy[k]} w={BOAR_OW_W} h={BOAR_OW_H} s={s} shadow /> });
+    }
+  }
   items.push({ y: h.y, key: 'hero', node: <Mover key="hero" pic={heroOwPicture(h.dir, h.frame, player.look, s)} x={heroX} y={heroY} w={HERO_OW_W} h={HERO_OW_H} s={s} shadow blink={h.grace > 0} /> });
   items.sort((a, b) => a.y - b.y);
 
@@ -544,6 +754,7 @@ export function WoodsScreen(props: WoodsProps) {
               {items.map((it) => it.node)}
               {boars.current.map((b, i) => (b.mode === 'dizzy' || b.mode === 'skid' ? <Dizzy key={`dz${i}`} x={bx[i]} y={by[i]} flip={b.flip} beat={starBeat} s={s} /> : null))}
               {ab != null ? <Bubble x={bx[ab]} y={by[ab]} top={15} scale={bubble} s={s} /> : null}
+              {pl.mode === 'lost' ? <Bubble x={px} y={py} top={24} scale={helpBubble} s={s} /> : null}
             </Group>
           </Canvas>
         ) : null}
@@ -564,8 +775,21 @@ export function WoodsScreen(props: WoodsProps) {
               </View>
             </View>
           </Framed>
-          <PackButton count={itemCount} bump={packBump} full={packFull} onPress={onOpenPack} />
+          <View style={{ gap: 8, alignItems: 'flex-end' }}>
+            <PackButton count={itemCount} bump={packBump} full={packFull} onPress={onOpenPack} />
+          </View>
         </View>
+        {quests.length || (metState && pl.mode === 'lost') ? (
+          <View style={[st.quests, { top: insets.top + 64 }]} pointerEvents="box-none">
+            <QuestLog
+              quests={
+                metState && pl.mode === 'lost'
+                  ? [{ id: 'rescue', title: 'Save the stranger', giver: 'merchant', item: 'go', have: 0, need: 1, turnIn: 'Drive off the boars circling him' }, ...quests]
+                  : quests
+              }
+            />
+          </View>
+        ) : null}
 
 
         <SwirlOverlay progress={swirl} w={box?.w ?? 0} h={box?.h ?? 0} />
@@ -580,10 +804,38 @@ export function WoodsScreen(props: WoodsProps) {
       ) : null}
       {battle ? (
         <View style={StyleSheet.absoluteFill}>
-          <BattleScreen key={battle.key} you={player} encounter={{ look: 0, name: BOAR_NAMES[battle.id], kind: 'boar', dizzy: battle.dizzy }} onDone={endBattle} />
+          <BattleScreen
+            key={battle.key}
+            you={player}
+            encounter={
+              battle.id === -1
+                ? {
+                    look: 0,
+                    name: RESCUE_PACK[0],
+                    kind: 'boar',
+                    pack: RESCUE_PACK,
+                    ally: '???',
+                    intro: 'Three angry boars wheel round to face you. The stranger raises his walking stick beside you!',
+                    won: 'The boars bolt into the trees. The stranger leans on his stick, panting. +60 XP.',
+                    fled: 'You backed off. The boars are still circling the stranger.',
+                  }
+                : { look: 0, name: BOAR_NAMES[battle.id], kind: 'boar', dizzy: battle.dizzy, ally: pl.mode === 'follow' ? 'Puul' : undefined }
+            }
+            onDone={endBattle}
+          />
         </View>
       ) : null}
       <FlashOverlay value={flash} />
+      {talk ? (
+        <Conversation
+          key={talk.key}
+          speaker={talk.start === 'help' || talk.start === 'again' || talk.start === 'saved' ? MERCHANT_SPEAKER : PUUL_SPEAKER}
+          script={MERCHANT_SCRIPT}
+          start={talk.start}
+          bottom={insets.bottom + 14}
+          onEnd={endTalk}
+        />
+      ) : null}
     </View>
   );
 }
@@ -607,5 +859,6 @@ const st = StyleSheet.create({
   counters: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   counter: { flexDirection: 'row', gap: 4, alignItems: 'center' },
   toast: { position: 'absolute', left: 12, right: 12 },
+  quests: { position: 'absolute', left: 12 },
   toastText: { fontSize: 14, lineHeight: 19, paddingHorizontal: 12, paddingVertical: 8, textAlign: 'center' },
 });

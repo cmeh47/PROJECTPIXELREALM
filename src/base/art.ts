@@ -4,6 +4,7 @@ import { bubbleGrid, heartGrid, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, l
 import { bagGrid, boarOverworld, coinGrid, meatGrid, signGrid } from '../sprites/boar';
 import { Grid, PAL, star } from '../sprites/pixel';
 import { heroOw, type HeroLook } from '../sprites/hero';
+import { merchantOverworld, standGrid } from '../sprites/merchant';
 import { gridPicture } from '../sprites/render';
 import { staticGround, windFrames, type Px } from './ground';
 import { MAP_H, MAP_W } from './map';
@@ -34,6 +35,9 @@ export const boarOwPicture = (frame: number, flip: boolean, s: number) => gridPi
 export const meatPicture = (s: number) => gridPicture('ow-meat', () => meatGrid(), s);
 export const bagPicture = (open: boolean, s: number) => gridPicture(`ow-bag-${open ? 1 : 0}`, () => bagGrid(open), s);
 export const coinPicture = (s: number) => gridPicture('ow-coin', () => coinGrid(), s);
+export const merchantOwPicture = (dir: Dir, frame: number, scared: boolean, s: number) =>
+  gridPicture(`ow-merchant-${dir}-${frame}-${scared ? 1 : 0}`, () => merchantOverworld(dir, frame, scared), s);
+export const standPicture = (done: boolean, s: number) => gridPicture(`ow-stand-${done ? 1 : 0}`, () => standGrid(done), s);
 export const signPicture = (s: number) => gridPicture('ow-sign', () => signGrid(), s);
 // Dizzy stars circling a boar's head after it charges past you, 14 x 6, in three turns.
 export const dizzyPicture = (frame: number, s: number) =>

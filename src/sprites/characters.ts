@@ -1,5 +1,6 @@
 import { boarLayers, boarPortrait, type BoarPose } from './boar';
 import { heroBattle, PARTY_LOOKS, type HeroLook } from './hero';
+import { merchantBadge, merchantLayers } from './merchant';
 import { arc, Grid, PAL, seg, star } from './pixel';
 
 export type Layer = { grid: Grid; alpha: number };
@@ -121,7 +122,7 @@ export type FoePose = {
   stars?: number;
   smear?: [number, number, number, number];
   look?: number;
-  kind?: 'shroomie' | 'butcher' | 'boar';
+  kind?: 'shroomie' | 'butcher' | 'boar' | 'merchant';
   down?: boolean; // knocked out (the boar draws its own collapse)
 };
 
@@ -133,6 +134,7 @@ const STEM = ['.CVVVVVVVVC.', 'CVVVVVVVVVVC', 'CVKVVVKVVVVC', 'CVKVVVKVVVVC', 'C
 
 export function foeLayers(p: FoePose): Layer[] {
   if (p.kind === 'butcher') return butcherLayers(p);
+  if (p.kind === 'merchant') return merchantLayers(p);
   if (p.kind === 'boar') return boarLayers(boarPoseOf(p));
   const g = new Grid(FOE_W, FOE_H);
   const bx = 36 + (p.x ?? 0);
@@ -194,6 +196,7 @@ export function foeLayers(p: FoePose): Layer[] {
 export function foePortrait(kind: FoePose['kind'] = 'shroomie'): Grid {
   const g = new Grid(20, 20);
   if (kind === 'boar') return boarPortrait();
+  if (kind === 'merchant') return merchantBadge();
   if (kind === 'butcher') {
     g.stamp(BUTCHER_BODY, 5, 13);
     g.stamp(BUTCHER_HEAD, 5, 5);
