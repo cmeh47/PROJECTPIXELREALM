@@ -61,6 +61,44 @@ classic pixel art.
 | `questGreen` | `#5FB894` | Quest complete check, positive deltas |
 | `epicPurple` | `#A77BE0` | Rare/epic rewards |
 
+### World (base scenery)
+
+Deeper tones for props on the overworld, so trees and paths read clearly against the mint meadow.
+
+| Token | Hex | Use |
+|---|---|---|
+| `leaf` | `#4E9E82` | Tree canopies |
+| `leafDeep` | `#3A7A6A` | Canopy shade and tier lines |
+| `bark` | `#8C6B5E` | Tree trunks, stumps |
+| `barkDeep` | `#6B4F4A` | Trunk shade, bark marks |
+| `stone` | `#DCD3E6` | Cobblestones |
+| `stoneDeep` | `#B2A6C6` | Mortar between cobblestones, path rim |
+| `barkPale` | `#D9C6B0` | Thick pale trunks (golden trees) |
+| `barkPaleShade` | `#B39C88` | Pale trunk shade and bark marks |
+| `barkDark` | `#64443A` | Twisty dark trunks (red and purple trees) |
+| `barkDarkShade` | `#4E342F` | Twisty trunk shade |
+| `leafGold` | `#E6B84C` | Golden canopies (lit with `butter`) |
+| `leafGoldDeep` | `#BC8838` | Golden canopy shade and tier lines |
+| `leafRed` | `#D8636A` | Red canopies (lit with `hpRose`, glint `rose`) |
+| `leafRedDeep` | `#A8454F` | Red canopy shade and tier lines |
+| `leafPlumDeep` | `#7D5CB8` | Purple canopy shade; the body is `epicPurple`, lit with `lavender` |
+
+### Characters (skin tones)
+
+Four skin tones a player can pick for their hero, each with a shade for ears, necks and the jaw.
+Peach is the existing `peach` token. Hair colors reuse tokens above (bark, butter, inkSoft,
+lavender, rose), each with its deeper partner as the shade.
+
+| Token | Hex | Use |
+|---|---|---|
+| `skinFair` / `skinFairShade` | `#FFE4D4` / `#F2C2AC` | Fair skin |
+| `peach` / `skinPeachShade` | `#FFC9B0` / `#EBA68C` | Peach skin |
+| `skinTan` / `skinTanShade` | `#D99B74` / `#B97A56` | Tan skin |
+| `skinDeep` / `skinDeepShade` | `#93604B` / `#744838` | Deep skin |
+
+Eyes are two-by-two `ink` with a white shine pixel so they read on every tone; cheeks are `rose`
+on the lighter two tones and `hpRose` on the darker two.
+
 ### Night mode ("Moonlit Forest")
 
 | Token | Hex |
@@ -263,4 +301,5 @@ Timing windows (starting guesses, tuned on device): Perfect about ±80 ms, parry
 - Hit flash: one frame of the sprite tinted white.
 - One timing sheet (`docs/timing.md`) lists frame counts and ticks for every action of every character.
 - Reduce Motion tones down shake, flashes and slow-downs.
+- Ambient motion (grass and flowers swaying as gusts cross the base) steps on the same 12 fps tick, a pixel at a time, pauses during battles and is off with Reduce Motion.
 - Reference: the combat animation storyboards (Sheet 1: action frames, Sheet 2: combat beats).
