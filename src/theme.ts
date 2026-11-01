@@ -18,6 +18,31 @@ export const colors = {
   questGreen: '#5FB894',
   epicPurple: '#A77BE0',
   white: '#FFFFFF',
+  // World scenery (DESIGN.md section 2, "World"): deeper tones so props stand out on the mint meadow.
+  leaf: '#4E9E82',
+  leafDeep: '#3A7A6A',
+  bark: '#8C6B5E',
+  barkDeep: '#6B4F4A',
+  stone: '#DCD3E6',
+  stoneDeep: '#B2A6C6',
+  // Autumn groves (DESIGN.md section 2, "World"): two more barks and three more canopies.
+  barkPale: '#D9C6B0',
+  barkPaleShade: '#B39C88',
+  barkDark: '#64443A',
+  barkDarkShade: '#4E342F',
+  leafGold: '#E6B84C',
+  leafGoldDeep: '#BC8838',
+  leafRed: '#D8636A',
+  leafRedDeep: '#A8454F',
+  leafPlumDeep: '#7D5CB8',
+  // Characters (DESIGN.md section 2, "Characters"): skin tones, each with a shade for necks and ears.
+  skinFair: '#FFE4D4',
+  skinFairShade: '#F2C2AC',
+  skinPeachShade: '#EBA68C',
+  skinTan: '#D99B74',
+  skinTanShade: '#B97A56',
+  skinDeep: '#93604B',
+  skinDeepShade: '#744838',
 } as const;
 
 export const P = 4;

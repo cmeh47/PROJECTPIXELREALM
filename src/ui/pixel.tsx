@@ -110,8 +110,10 @@ export function Chip({ label, fill = colors.butter }: { label: string; fill?: st
 // Tiny bitmap icons (8 x 8), drawn as views so they stay on the pixel grid.
 const ICONS: Record<string, string[]> = {
   sword: ['.......X', '......X.', '.....X..', '.X..X...', '..XX....', '..XX....', '.X..X...', 'X.......'],
+  spark: ['...X....', '...X....', '.X.X.X..', '..XXX...', 'XXXXXXX.', '..XXX...', '.X.X.X..', '...X....'],
   heart: ['.XX.XX..', 'XXXXXXX.', 'XXXXXXX.', '.XXXXX..', '..XXX...', '...X....', '........', '........'],
   flee: ['X...X...', '.X...X..', '..X...X.', '..X...X.', '.X...X..', 'X...X...', '........', '........'],
+  next: ['........', '........', 'XXXXXXX.', '.XXXXX..', '..XXX...', '...X....', '........', '........'],
 };
 
 export function PixelIcon({ name, size = 3, color = colors.ink }: { name: keyof typeof ICONS; size?: number; color?: string }) {
