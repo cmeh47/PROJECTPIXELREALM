@@ -130,7 +130,7 @@ export function treeGrid(variant: number): Grid {
 // Three more kinds, mixed in among the green trees (variants 0-2). Each comes in two shapes.
 //   variants 3, 4: golden tree, a thick pale trunk under a round dome of gold leaves
 //   variants 5, 6: red tree, a twisty dark trunk threading up through flat layered pads
-//   variants 7, 8: purple tree, a twisty dark trunk under a weeping crown that hangs in strands
+//   variants 7, 8: purple tree, a twisty dark trunk under a wide, rounded crown
 // Same 30 x 48 frame and trunk base as the green trees, so tapping, chopping and walking around
 // them work the same. Canopies use the green tree's lighting: lit top left, shade bottom right.
 export const TREE_KINDS = ['green', 'gold', 'red', 'purple'] as const;
@@ -261,32 +261,15 @@ function autumnTreeGrid(variant: number): Grid {
     const inside = (x: number, y: number) => pads.some((p) => inPad(x, y, p));
     paintCanopy(g, pads, inside, lc, shape + 3, 32);
   } else {
-    // A weeping purple crown: a dome on top, with strands hanging down either side of the trunk.
-    const pads: Pad[] = shape === 0 ? [[15, 8, 9, 6], [15, 15, 12, 6]] : [[14, 8, 9, 6], [16, 15, 12, 6]];
-    twistyTrunk(g, 16, shape === 0 ? 1.4 : 3.6);
-    const crown = (x: number, y: number) => pads.some((p) => inPad(x, y, p));
-    // Strands two pixels wide with a one-pixel gap between them (the outline fills the gap), long
-    // at the sides and short toward the middle, so the trunk shows under the crown.
-    const mid = shape === 0 ? 15 : 16;
-    const hang = (x: number) => {
-      if (x < 3 || x > 27 || (x + shape) % 3 === 0) return 0;
-      const d = Math.abs(x - mid);
-      if (d < 5) return 0;
-      const edge = Math.min(x - 3, 27 - x) < 2 ? -4 : 0;
-      return 27 + Math.min(7, d - 4) + edge + ((Math.floor((x + shape) / 3) * 5 + shape) % 3);
-    };
-    const strand = (x: number, y: number) => y >= 15 && y < hang(x);
-    const inside = (x: number, y: number) => crown(x, y) || strand(x, y);
-    paintCanopy(g, pads, inside, lc, shape + 5, 40);
-    // Strands: lit on the left pixel, shaded on the right, with pale blossom at the tips.
-    for (let x = 3; x < 28; x++) {
-      const end = hang(x);
-      if (!end) continue;
-      const left = hang(x - 1) === 0;
-      for (let y = 21; y < end; y++) if (!crown(x, y)) g.set(x, y, left ? lc.body : lc.deep);
-      g.set(x, end - 1, lc.lit);
-      if (x % 4 === 1) g.set(x, end - 5, lc.lit);
-    }
+    // A wide purple crown on the twisty trunk: a dome on top over a broad middle tier, with
+    // its underside rounded off so the trunk shows beneath it.
+    const pads: Pad[] =
+      shape === 0
+        ? [[15, 8, 8, 6], [15, 16, 12, 7], [15, 22, 9, 5]]
+        : [[14, 8, 8, 6], [16, 16, 12, 7], [15, 22, 9, 5]];
+    twistyTrunk(g, 22, shape === 0 ? 1.4 : 3.6);
+    const inside = (x: number, y: number) => pads.some((p) => inPad(x, y, p));
+    paintCanopy(g, pads, inside, lc, shape + 5, 30);
   }
   g.outline(PAL.K);
   return g;

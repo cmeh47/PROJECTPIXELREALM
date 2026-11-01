@@ -46,7 +46,7 @@ export const HUT_BOX = { x: HUT.x + 3, y: HUT.y + 20, w: 40, h: 13 };
 export const BUTCHER = { x: HUT.x + 12, y: HUT.y + 50 };
 
 // A small seeded generator, so the lot looks the same every time it loads.
-// Autumn groves: the meadow and the woods are dotted with golden, red and purple trees. Each patch
+// Autumn groves: the Boar Woods are dotted with golden, red and purple trees (the base stays green). Each patch
 // of ground leans toward one kind, so they gather in little groves instead of a random speckle.
 // Uses its own seed, so tree positions never move. `variant` is the tree's green shape (0-2).
 export function groveVariant(t: Pt & { variant: number }, seed: number, mix = 0.45): number {
@@ -117,7 +117,7 @@ export const TREES: TreeSpot[] = (() => {
   return out
     .filter((t) => !(t.border && t.x > MAP_W - 30 && t.y > EAST_GAP.y0 && t.y < EAST_GAP.y1))
     .filter((t) => t.border || Math.hypot(t.x - SIGN.x, t.y - SIGN.y) > 18)
-    .map((t, i) => ({ ...t, id: i, variant: groveVariant(t, 2) }));
+    .map((t, i) => ({ ...t, id: i }));
 })();
 
 // Ground details, generated once: grass tufts, taller grass clumps, flowers and clover. Grass and
