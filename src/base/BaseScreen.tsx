@@ -30,6 +30,7 @@ import {
 import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, PUUL_POST, SIGN, SPAWN, STAND, STAND_BOX, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
 import { QuestLog, type Quest } from './QuestLog';
+import { followY, newVCam } from './camera';
 import { faceToward, newFollower, stepFollower, type Follower } from './follow';
 import { MERCHANT_OW_H, MERCHANT_OW_W } from '../sprites/merchant';
 import type { Hero } from '../net/useHero';
@@ -190,6 +191,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   const heroY = useSharedValue(SPAWN.y);
   const camX = useSharedValue(0);
   const camY = useSharedValue(0);
+  const vcam = useRef(newVCam());
   const tx = [useSharedValue(0), useSharedValue(0), useSharedValue(0), useSharedValue(0)];
   const ty = [useSharedValue(0), useSharedValue(0), useSharedValue(0), useSharedValue(0)];
   const npcX = useSharedValue(BUTCHER.x);
@@ -202,8 +204,8 @@ export function BaseScreen({ player }: { player: Hero }) {
   const swirl = useSharedValue(0);
   const flash = useSharedValue(0);
 
-  const viewRef = useRef({ w: viewW, h: viewH });
-  viewRef.current = { w: viewW, h: viewH };
+  const viewRef = useRef({ w: viewW, h: viewH, s });
+  viewRef.current = { w: viewW, h: viewH, s };
 
   const popId = useRef(0);
   const pop = useCallback((text: string, color: string, wx: number, wy: number, extra?: Partial<Pop>) => {
@@ -835,7 +837,7 @@ export function BaseScreen({ player }: { player: Hero }) {
       });
       const v = viewRef.current;
       put(camX, Math.round(Math.max(0, Math.min(MAP_W - v.w, h.x - v.w / 2))));
-      put(camY, Math.round(Math.max(0, Math.min(MAP_H - v.h, h.y - 10 - v.h / 2))));
+      put(camY, followY(vcam.current, h.y, v.h, MAP_H, dt, v.s));
 
       if (repaint) force();
       raf = requestAnimationFrame(tick);
