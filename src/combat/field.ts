@@ -25,8 +25,10 @@ const HERO_SOLO: [number, number][] = [[0.2, 0]];
 const FOE_SOLO: [number, number][] = [[0.74, 0]];
 const HERO_FULL: [number, number][] = [[0.32, 0], [0.26, -20], [0.15, 12], [0.1, -8]];
 const FOE_FULL: [number, number][] = [[0.7, 0], [0.78, -20], [0.88, 10]];
+// Boars are much longer than Shroomies: a pack of them spreads wider and deeper so they don't pile up.
+const FOE_BIG: [number, number][] = [[0.64, 0], [0.84, -24], [0.86, 20]];
 
-export function fieldLayout(boxW: number, boxH: number, full: boolean): Field {
+export function fieldLayout(boxW: number, boxH: number, full: boolean, big = false): Field {
   const s = Math.max(2, Math.floor(boxW / (full ? VIEW_FULL : VIEW_SOLO)));
   const w = Math.ceil(boxW / s);
   const h = Math.ceil(boxH / s);
@@ -40,6 +42,6 @@ export function fieldLayout(boxW: number, boxH: number, full: boolean): Field {
     horizon,
     ground,
     heroes: (full ? HERO_FULL : HERO_SOLO).map(place),
-    foes: (full ? FOE_FULL : FOE_SOLO).map(place),
+    foes: (full ? (big ? FOE_BIG : FOE_FULL) : FOE_SOLO).map(place),
   };
 }

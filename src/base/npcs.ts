@@ -1,4 +1,5 @@
 import { butcherPortrait, shroomiePortrait, type ButcherMood } from '../sprites/characters';
+import { merchantPortrait, type MerchantMood } from '../sprites/merchant';
 import type { Script, Speaker } from './Conversation';
 
 // Who you can talk to on the base, and what they say.
@@ -89,3 +90,59 @@ export function butcherScript(meat: number, price: number): Script {
     later: { say: 'Suit yourself. My door is open.', mood: 'calm' },
   };
 }
+
+// ---------- Puul the merchant ----------
+// He's "???" until he tells you his name after the rescue.
+const merchantVoice = require('../../assets/sounds/merchant.wav');
+
+export const MERCHANT_SPEAKER: Speaker = {
+  key: 'merchant',
+  name: '???',
+  voice: merchantVoice,
+  loop: true,
+  portrait: (mood, talking) => merchantPortrait((mood as MerchantMood) ?? 'calm', talking),
+};
+// Once you know him.
+export const PUUL_SPEAKER: Speaker = { ...MERCHANT_SPEAKER, key: 'puul', name: 'Puul' };
+
+// How far you've got with Puul: 'lost' in the woods until you save him, 'escort' while he follows
+// you home, 'home' once he's on your base (offering the stand job), 'stand' while you gather the
+// wood, 'open' once it's built.
+export type MerchantStage = 'lost' | 'escort' | 'home' | 'stand' | 'open';
+export const STAND_WOOD = 20;
+
+// End tags: 'fight' starts the rescue battle, 'follow' sets off for home, 'accept' starts the
+// stand quest, 'decline' leaves it open, 'handin' gives him the wood.
+export const MERCHANT_SCRIPT: Script = {
+  help: { say: 'Gyahhh! Oh, hey, HEY! Please, you there, please help me!', mood: 'scared', end: 'fight' },
+  again: { say: "You came back! Please, they won't let me go!", mood: 'scared', end: 'fight' },
+
+  saved: { say: '...', mood: 'calm', silent: true, next: 'saved2' },
+  saved2: { say: 'Phew! I thought I was boar food for sure. Thank you, friend. Truly!', mood: 'happy', next: 'name' },
+  name: {
+    say: "I'm a merchant. The name's Puul. Those brutes ran off with my cart and scattered my wares.",
+    mood: 'calm',
+    name: 'Puul',
+    choices: [{ label: "I've got a base just west of here. You can stay there.", next: 'place' }],
+  },
+  place: { say: "Wow, you have a place? That's great! I'll move into your base and handle your trade.", mood: 'happy', next: 'lead' },
+  lead: { say: "Lead the way, I'll stick right behind you. Away from the boars, please!", mood: 'calm', end: 'follow' },
+  escort: { say: "I'm right behind you! Your base is out the west gap, yes?", mood: 'calm', name: 'Puul' },
+
+  home: { say: 'So this is your place! Lovely. And plenty of room for a stand.', mood: 'happy', name: 'Puul', next: 'ask' },
+  ask: {
+    say: `I'll need a merchant stand to trade from. ${STAND_WOOD} wood should do it. Will you help me build it?`,
+    mood: 'calm',
+    name: 'Puul',
+    choices: [
+      { label: 'Yes', next: 'yes' },
+      { label: 'Not yet', next: 'no' },
+    ],
+  },
+  yes: { say: `Wonderful! Bring me ${STAND_WOOD} wood and we're in business.`, mood: 'happy', end: 'accept' },
+  no: { say: "No rush. I'll be right here when you're ready.", mood: 'calm', end: 'decline' },
+
+  quest: { say: `${STAND_WOOD} wood is all I need. The trees round here will do nicely.`, mood: 'calm', name: 'Puul' },
+  ready: { say: `That's ${STAND_WOOD} wood! Stand back, I know just what to do.`, mood: 'happy', name: 'Puul', end: 'handin' },
+  open: { say: "Puul's stand is open! When the trade caravans start coming by, I'll handle all your deals.", mood: 'happy', name: 'Puul' },
+};

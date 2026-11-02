@@ -5,7 +5,7 @@ import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 
 import { FOE_GROUND, HERO_GROUND, type FoePose, type HeroPose } from '../sprites/characters';
 import { Grid, PAL } from '../sprites/pixel';
-import { backdropPicture, foePicture, gridPicture, heroPicture } from '../sprites/render';
+import { allyPicture, backdropPicture, foePicture, gridPicture, heroPicture } from '../sprites/render';
 import { GLYPH_C, glyphGrid, type GlyphState } from '../sprites/spells';
 import { colors } from '../theme';
 import type { Field, Slot } from './field';
@@ -17,6 +17,8 @@ const webDeps = (deps: unknown[]) => (Platform.OS === 'web' ? deps : undefined);
 // Where a sprite frame sits for a slot: hero bodies are 22 px into their frame, foes 36.
 export const heroFrame = (slot: Slot) => ({ x: slot.x - 22, y: slot.y - HERO_GROUND });
 export const foeFrame = (slot: Slot) => ({ x: slot.x - 36, y: slot.y - FOE_GROUND });
+// An NPC ally drawn with foe-style art, mirrored to face right: its body is 27 px into the frame.
+export const allyFrame = (slot: Slot) => ({ x: slot.x - 27, y: slot.y - FOE_GROUND });
 
 export type RuneFx = {
   visible: SharedValue<number>;
@@ -51,7 +53,7 @@ export type FxItem = { key: string; pic: SkPicture; x: number; y: number; dx?: S
 
 // z overrides draw order (it defaults to the slot's lane), so a hero who dashes into another lane draws in it.
 type ActorBase = { key: string; slot: Slot; z?: number; dx?: SharedValue<number>; dy?: SharedValue<number> };
-export type Actor = (ActorBase & { kind: 'hero'; pose: HeroPose }) | (ActorBase & { kind: 'foe'; pose: FoePose });
+export type Actor = (ActorBase & { kind: 'hero'; pose: HeroPose }) | (ActorBase & { kind: 'foe' | 'ally'; pose: FoePose });
 
 function runeGrid(decoy: boolean) {
   const g = new Grid(7, 7);
@@ -63,10 +65,10 @@ function runeGrid(decoy: boolean) {
 
 function ActorSprite({ actor, s }: { actor: Actor; s: number }) {
   const pic = useMemo(
-    () => (actor.kind === 'hero' ? heroPicture(actor.pose, s) : foePicture(actor.pose, s)),
+    () => (actor.kind === 'hero' ? heroPicture(actor.pose, s) : actor.kind === 'ally' ? allyPicture(actor.pose, s) : foePicture(actor.pose, s)),
     [actor.kind, actor.pose, s],
   );
-  const frame = actor.kind === 'hero' ? heroFrame(actor.slot) : foeFrame(actor.slot);
+  const frame = actor.kind === 'hero' ? heroFrame(actor.slot) : actor.kind === 'ally' ? allyFrame(actor.slot) : foeFrame(actor.slot);
   const { dx, dy } = actor;
   const transform = useDerivedValue(
     () => [{ translateX: Math.round(frame.x + (dx ? dx.value : 0)) * s }, { translateY: Math.round(frame.y + (dy ? dy.value : 0)) * s }],

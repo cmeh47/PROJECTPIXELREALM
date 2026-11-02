@@ -186,7 +186,9 @@ function NextArrow() {
 
 const st = StyleSheet.create({
   wrap: { position: 'absolute', left: 12, right: 12 },
-  choices: { alignSelf: 'flex-end', maxWidth: '88%', gap: 6, marginBottom: 10 },
+  // The column sizes itself to the longest reply (at least about half the box, at most most of it),
+  // and every reply stretches to that width.
+  choices: { alignSelf: 'flex-end', minWidth: '55%', maxWidth: '88%', gap: 6, marginBottom: 10 },
   choice: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -199,7 +201,9 @@ const st = StyleSheet.create({
     minHeight: 48,
   },
   choiceDown: { backgroundColor: colors.butter },
-  choiceText: { flex: 1, fontFamily: fonts.heading, fontSize: 16, lineHeight: 21, color: colors.ink },
+  // flexShrink, not flex: 1. On phones a flex: 1 label in a column with no set width measures as
+  // zero wide, which left only the arrow showing.
+  choiceText: { flexShrink: 1, fontFamily: fonts.heading, fontSize: 16, lineHeight: 21, color: colors.ink },
   nameTab: { alignSelf: 'flex-start', marginLeft: 10, marginBottom: -2, backgroundColor: colors.lavender, borderWidth: 2, borderColor: colors.ink, borderBottomWidth: 0, paddingHorizontal: 8, paddingTop: 3, paddingBottom: 2 },
   name: { fontFamily: fonts.stat, fontSize: 12, lineHeight: 15, color: colors.ink },
   row: { flexDirection: 'row', gap: 12, padding: 10, alignItems: 'center' },

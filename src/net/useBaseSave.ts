@@ -5,6 +5,7 @@ import { ensureSignedIn, supabase } from './supabase';
 // The player's base as the server stores it (supabase/migrations/*_save_base.sql).
 export type ShroomieStatus = 'wild' | 'gone' | 'critter';
 export type ServerButcher = 'hostile' | 'spared' | 'quest' | 'building' | 'shop';
+export type ServerMerchant = 'lost' | 'escort' | 'home' | 'stand' | 'open';
 export type SavedBase = {
   wood: number;
   shroomies: ShroomieStatus[];
@@ -15,6 +16,9 @@ export type SavedBase = {
   groundMeat: number; // dropped in the Boar Woods, waiting to be picked up
   coins: number;
   boarsBackAt: (number | null)[]; // when each of the three boars is back, on this device's clock
+  // Puul's story (supabase/migrations/*_merchant_rescue.sql). Missing until that migration is applied,
+  // and then the game keeps its own copy.
+  merchant?: ServerMerchant;
 };
 
 // offline: no Supabase project configured; loading: signing in and fetching; saved: in step with the
@@ -30,7 +34,8 @@ export type BaseCall =
   | { fn: 'butcher_step'; step: 'beaten' | 'accept' | 'handin' | 'opened' }
   | { fn: 'boar_hunt'; idx: number; result: 'won'; perfect: boolean }
   | { fn: 'pick_up_meat'; n: number }
-  | { fn: 'sell_meat' };
+  | { fn: 'sell_meat' }
+  | { fn: 'merchant_step'; step: 'rescued' | 'home' | 'accept' | 'handin' };
 
 type Raw = {
   wood: number;
@@ -43,6 +48,8 @@ type Raw = {
   ground_meat?: number;
   coins?: number;
   boars_back_at?: (string | null)[];
+  // Added by the merchant rescue migration.
+  merchant?: ServerMerchant;
   server_now: string;
 };
 
@@ -59,12 +66,13 @@ function fromRaw(r: Raw): SavedBase {
     groundMeat: r.ground_meat ?? 0,
     coins: r.coins ?? 0,
     boarsBackAt: (r.boars_back_at ?? [null, null, null]).map((t) => (t ? Date.parse(t) - offset : null)),
+    merchant: r.merchant,
   };
 }
 
 const args = (c: BaseCall) => {
   if (c.fn === 'shroomie_battle') return { idx: c.idx, result: c.result };
-  if (c.fn === 'butcher_step') return { step: c.step };
+  if (c.fn === 'butcher_step' || c.fn === 'merchant_step') return { step: c.step };
   if (c.fn === 'boar_hunt') return { idx: c.idx, result: c.result, perfect: c.perfect };
   if (c.fn === 'pick_up_meat') return { n: c.n };
   return undefined;

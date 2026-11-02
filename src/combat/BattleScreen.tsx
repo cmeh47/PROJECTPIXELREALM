@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { foePortrait, type FoePose, type HeroPose } from '../sprites/characters';
 import { DEFAULT_LOOK, heroBattle, heroFace, PARTY_LOOKS, type HeroClass, type HeroLook } from '../sprites/hero';
 import type { Hero } from '../net/useHero';
+import { merchantFace } from '../sprites/merchant';
 import { fxPicture, gridPicture } from '../sprites/render';
 import { boltFx, burstFx, EMBER_C, emberGrid, lanceFx, motesFx, type FxGrid, type Pt } from '../sprites/spells';
 import { colors } from '../theme';
@@ -52,6 +53,7 @@ import {
   hitOn,
   maxHpOf,
   MOVES,
+  NPC_STRIKE,
   PATTERNS,
   powerMult,
   rand,
@@ -71,7 +73,9 @@ type Phase = 'menu' | 'moves' | 'tame' | 'flee' | 'acting' | 'won' | 'lost' | 't
 
 // Battle state lives in a ref and is mutated by the async combat sequences; force() repaints.
 // pose === null means "breathe with the shared idle beat".
-type HeroState = { name: string; look: HeroLook; stats: Stats; maxHp: number; hp: number; pose: HeroPose | null; z?: number };
+// npc: an ally the game controls, drawn with foe-style art facing right (Puul the merchant). Its
+// frames go in fpose; pose is ignored for it.
+type HeroState = { name: string; look: HeroLook; stats: Stats; maxHp: number; hp: number; pose: HeroPose | null; z?: number; npc?: 'merchant'; fpose?: FoePose | null };
 type FoeState = { name: string; look: number; kind?: FoePose['kind']; maxHp: number; hp: number; brk: number; broken: boolean; out: null | 'down' | 'tamed' | 'fled'; pose: FoePose | null; z?: number };
 type Game = { heroes: HeroState[]; foes: FoeState[] };
 
@@ -95,7 +99,23 @@ const HERO_NAMES = ['You', 'Mint Ranger', 'Gold Warden', 'Sky Mage'];
 const FOE_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie'];
 
 // dizzy: the boar charged past you on the map and opens the fight Broken.
-export type Encounter = { look: number; name: string; kind?: FoePose['kind']; dizzy?: boolean };
+// pack: a group fight, one foe of this kind per name. ally: an NPC who fights beside you (its name).
+// intro, won and fled replace the battle's usual lines.
+export type Encounter = {
+  look: number;
+  name: string;
+  kind?: FoePose['kind'];
+  dizzy?: boolean;
+  pack?: string[];
+  ally?: string;
+  intro?: string;
+  won?: string;
+  fled?: string;
+};
+// Puul in battle: a sturdy traveller, slower than you, so he swings after your move.
+const MERCHANT_STATS: Stats = { hp: 6, str: 5, def: 5, mag: 1, spd: 3 };
+// "the Mint Ranger", but a named NPC goes by his name alone.
+const called = (h: { name: string; npc?: string }) => (h.npc ? h.name : `the ${h.name}`);
 // A boar is a quick hunt: less health than a Shroomie, and it can't be tamed.
 const BOAR_MAX_HP = 80;
 
@@ -103,7 +123,7 @@ const BOAR_MAX_HP = 80;
 function foeCopy(kind: FoePose['kind']) {
   if (kind === 'boar')
     return {
-      intro: (name: string) => `A ${name} snorts and lowers its tusks.`,
+      intro: (name: string) => `${/^[AEIOU]/.test(name) ? 'An' : 'A'} ${name} snorts and lowers its tusks.`,
       tell: (name: string) => `The ${name} paws the ground!`,
       win: 'The boar slumps over. Victory!',
       broken: 'The boar is Broken! It staggers, dizzy. Hit it hard.',
@@ -140,11 +160,19 @@ function newGame(full: boolean, encounter?: Encounter, you?: Hero): Game {
     const look = i === 0 ? (you?.look ?? DEFAULT_LOOK) : PARTY_LOOKS[i];
     const stats = statsOf(look.cls);
     const maxHp = maxHpOf(stats);
-    return { name: HERO_NAMES[i], look, stats, maxHp, hp: maxHp, pose: null };
+    return { name: HERO_NAMES[i], look, stats, maxHp, hp: maxHp, pose: null } as HeroState;
   });
+  if (encounter?.ally && !full) {
+    const maxHp = maxHpOf(MERCHANT_STATS);
+    heroes.push({ name: encounter.ally, look: DEFAULT_LOOK, stats: MERCHANT_STATS, maxHp, hp: maxHp, pose: null, npc: 'merchant', fpose: null });
+  }
   const foes: FoeState[] = (full ? [0, 1, 2] : [0]).map((j) => ({ name: FOE_NAMES[j], look: j, maxHp: FOE_MAX_HP, hp: FOE_MAX_HP, brk: 0, broken: false, out: null, pose: null }));
+  if (encounter?.pack && !full) {
+    const maxHp = encounter.kind === 'boar' ? BOAR_MAX_HP : FOE_MAX_HP;
+    return { heroes, foes: encounter.pack.map((name) => ({ name, look: encounter.look, kind: encounter.kind, maxHp, hp: maxHp, brk: 0, broken: false, out: null, pose: null })) };
+  }
   if (encounter && !full) {
-    const { dizzy, ...who } = encounter;
+    const { dizzy, pack: _p, ally: _a, intro: _i, won: _w, fled: _f, ...who } = encounter;
     Object.assign(foes[0], who);
     if (encounter.kind === 'boar') foes[0].maxHp = foes[0].hp = BOAR_MAX_HP;
     if (dizzy) {
@@ -172,7 +200,10 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
 
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
   const [full, setFull] = useState(false);
-  const field = useMemo(() => (box ? fieldLayout(box.w, box.h, full) : null), [box, full]);
+  // A group encounter (a pack, or an ally beside you) uses the wide party camera.
+  const wide = full || !!encounter?.pack || !!encounter?.ally;
+  const big = encounter?.kind === 'boar' && !!encounter.pack;
+  const field = useMemo(() => (box ? fieldLayout(box.w, box.h, wide, big) : null), [box, wide, big]);
   const fieldRef = useRef<Field | null>(field);
   fieldRef.current = field;
 
@@ -193,7 +224,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
   const [hint, setHint] = useState('');
   const kind = encounter?.kind ?? 'shroomie';
   const copy = foeCopy(kind);
-  const [line, setLine] = useState(encounter?.dizzy ? `The ${encounter.name} skidded past you and is dizzy. Strike now!` : copy.intro(encounter?.name ?? 'Mossback Shroomie'));
+  const [line, setLine] = useState(encounter?.intro ? encounter.intro : encounter?.dizzy ? `The ${encounter.name} skidded past you and is dizzy. Strike now!` : copy.intro(encounter?.name ?? 'Mossback Shroomie'));
   const [pops, setPops] = useState<Pop[]>([]);
   const [sel, setSel] = useState(0);
   const [treat, setTreat] = useState(false);
@@ -314,6 +345,21 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
       }
     },
     [setHeroPose],
+  );
+  // An NPC ally's frames: the foe pose tables, drawn mirrored on the heroes' side.
+  const setAllyPose = useCallback((i: number, pose: FoePose | null) => {
+    game.current.heroes[i].fpose = pose;
+    force();
+  }, []);
+  const playAlly = useCallback(
+    async (i: number, frames: Frames<FoePose>) => {
+      for (const [ticks, pose] of frames) {
+        if (!alive.current) return;
+        setAllyPose(i, pose);
+        await wait(ticks * TICK);
+      }
+    },
+    [setAllyPose],
   );
   const playFoe = useCallback(
     async (j: number, frames: Frames<FoePose>) => {
@@ -484,7 +530,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
         setLine(pattern.feint ? `The ${g0.foes[j].name} sways oddly...` : copy.tell(g0.foes[j].name));
       } else {
         setHint('');
-        setLine(`The ${g0.foes[j].name} goes for the ${g0.heroes[i].name}!`);
+        setLine(`The ${g0.foes[j].name} goes for ${called(g0.heroes[i])}!`);
       }
       setHeroPose(i, HERO.guard);
       moveFoe(j, g.lungeTo(j, i), 280);
@@ -506,21 +552,27 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
           await wait(TICK);
           setFoePose(j, FOE.impact);
           const r = Math.random();
+          const npc = !!g0.heroes[i].npc;
           if (r < ECHO_DEFENSE.parry) {
             doShake(1);
-            pop('PARRY', colors.sky, at.x, at.y - 6);
-            await playHero(i, HERO.parry);
+            pop(npc ? 'BLOCK' : 'PARRY', colors.sky, at.x, at.y - 6);
+            // Puul gets his stick up across the blow.
+            if (npc) await playAlly(i, [[1, { ...FOE.tellHold, glint: false, spark: 2 }], [2, { ...FOE.tellHold, glint: false }]]);
+            else await playHero(i, HERO.parry);
           } else if (r < ECHO_DEFENSE.parry + ECHO_DEFENSE.dodge) {
             pop('DODGE', colors.lavender, at.x, at.y - 6);
-            await playHero(i, HERO.dodge.slice(0, 3));
+            if (npc) await playAlly(i, [[1, { x: 3, crouch: true, tilt: 1 }], [2, { x: 5, crouch: true }], [1, { x: 2 }]]);
+            else await playHero(i, HERO.dodge.slice(0, 3));
           } else {
             doShake(2);
             const dmg = hitOn(ENEMY_HIT, g0.heroes[i].stats);
             const down = hurtHero(i, dmg);
             pop(`-${dmg}`, colors.hpRose, at.x, at.y);
-            await playHero(i, HERO.hurt);
+            if (npc) await playAlly(i, FOE.hurt);
+            else await playHero(i, HERO.hurt);
             if (down) pop('DOWN', colors.inkSoft, at.x, at.y - 12);
           }
+          if (npc) setAllyPose(i, null);
           break;
         }
 
@@ -604,7 +656,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
       setFocus(null);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [armDefend, dealDamage, doShake, gainAp, geo, hurtHero, playFoe, playHero, pop, setFoePose, setHeroPose],
+    [armDefend, dealDamage, doShake, gainAp, geo, hurtHero, playAlly, playFoe, playHero, pop, setAllyPose, setFoePose, setHeroPose],
   );
 
   // ---------- An Echo ally strikes ----------
@@ -617,6 +669,40 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
       const j = pick(targets);
       setFocus(j);
       setHint('');
+      if (g0.heroes[i].npc) {
+        // Puul steps in and brings his walking stick down: the butcher's swing, frame for frame.
+        setLine(`${g0.heroes[i].name} swings his walking stick at the ${g0.foes[j].name}!`);
+        g0.heroes[i].z = g.f.foes[j].y + 0.5;
+        // He stops a little shorter than a sword-swinger: the stick has the reach, and boars are long.
+        const to = g.dashTo(i, j);
+        moveHero(i, { dx: to.dx - (g0.foes[j].kind === 'boar' ? 12 : 4), dy: to.dy }, TICK * 3);
+        await playAlly(i, [[2, { crouch: true }], [1, {}]]);
+        await playAlly(i, FOE.windup);
+        setAllyPose(i, FOE.tellHold);
+        await wait(rand(200, 380));
+        const grade: Grade = echoGrade();
+        setAllyPose(i, FOE.swing[0][1]);
+        await wait(TICK);
+        setAllyPose(i, FOE.impact);
+        const r = dealDamage(j, NPC_STRIKE.damage * GRADE_MULT[grade] * powerMult(g0.heroes[i].stats.str), NPC_STRIKE.brk * GRADE_BREAK[grade]);
+        const fb = g.foe(j);
+        if (!r.dead) setFoePose(j, FOE.hurt[0][1]);
+        doShake(grade === 'perfect' ? 3 : 1);
+        const label = grade === 'perfect' ? 'PERFECT' : grade === 'good' ? 'GOOD' : 'MISS';
+        const tone = grade === 'perfect' ? colors.butter : grade === 'good' ? colors.mint : colors.lavender;
+        pop(label, tone, fb.x - 12, g.above(fb, 52));
+        pop(`-${r.real}`, colors.hpRose, fb.x + 6, g.above(fb, 38));
+        if (r.justBroke) pop('BREAK!', colors.rose, fb.x + 4, g.above(fb, 60), { big: true });
+        await wait(TICK * 2);
+        if (!r.dead) void playFoe(j, FOE.hurt.slice(1));
+        moveHero(i, { dx: 0, dy: 0 }, 300, Easing.inOut(Easing.quad));
+        await playAlly(i, FOE.recover);
+        setAllyPose(i, null);
+        g0.heroes[i].z = undefined;
+        setFoePose(j, null);
+        setFocus(null);
+        return;
+      }
       if (g0.heroes[i].look.cls === 'mage') {
         // A mage Echo casts Frost Lance from where it stands, its glyphs rolled.
         setLine(`The ${g0.heroes[i].name} casts Frost Lance at the ${g0.foes[j].name}!`);
@@ -676,7 +762,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
       setFocus(null);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [dealDamage, doShake, geo, playFoe, playHero, pop, setFoePose, setHeroPose],
+    [dealDamage, doShake, geo, playAlly, playFoe, playHero, pop, setAllyPose, setFoePose, setHeroPose],
   );
 
   const tamedRef = useRef(0);
@@ -684,7 +770,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
   const finish = useCallback((result: 'won' | 'tamed') => {
     setCheer(true);
     setFocus(null);
-    setLine(result === 'tamed' ? 'The Shroomie wants to come home with you!' : copy.win);
+    setLine(result === 'tamed' ? 'The Shroomie wants to come home with you!' : encounter?.pack ? 'The last one goes down. Victory!' : copy.win);
     setPhase(result);
     haptic('success');
   }, []);
@@ -896,7 +982,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
       const j2 = others[0] ?? j;
       setFocus(spell.heal ? null : j);
       setAp((a) => Math.min(AP_MAX, a - spell.cost));
-      setLine(spell.heal ? `You cast Mend on ${ally === 0 ? 'yourself' : `the ${g0.heroes[ally].name}`}!` : `You cast ${spell.name}!`);
+      setLine(spell.heal ? `You cast Mend on ${ally === 0 ? 'yourself' : called(g0.heroes[ally])}!` : `You cast ${spell.name}!`);
       setHint('Tap each glyph in order as its ring closes.');
       setChain(0);
 
@@ -1201,6 +1287,11 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
       const b = (beat + i) % 4;
       const idlePose: HeroPose =
         h.hp <= 0 ? HERO.down : cheer ? HERO.cheer[b % 2][1] : b % 2 === 0 ? HERO.ready : { ...HERO.ready, crouch: true, hy: 5 };
+      if (h.npc) {
+        const npcIdle: FoePose = h.hp <= 0 ? FOE.down : cheer ? FOE.happy[b % 2][1] : (h.fpose ?? FOE.idle[b][1]);
+        actors.push({ kind: 'ally', key: `h${i}`, slot: field.heroes[i], z: h.z, pose: { ...npcIdle, kind: h.npc }, dx: hdx[i], dy: hdy[i] });
+        return;
+      }
       actors.push({ kind: 'hero', key: `h${i}`, slot: field.heroes[i], z: h.z, pose: { ...(h.pose ?? idlePose), hero: h.look }, dx: hdx[i], dy: hdy[i] });
     });
     g0.foes.forEach((f, j) => {
@@ -1231,7 +1322,9 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
           : line;
   const tamedName = g0.foes.find((f) => f.out === 'tamed')?.name ?? 'Mossback Shroomie';
   const downed = g0.foes.filter((f) => f.out === 'down').length;
-  const wonText = party
+  const wonText = encounter?.won
+    ? encounter.won
+    : party
     ? `The pack is cleared. +40 XP each for the party, and ${3 * downed} wood for the base.`
     : kind === 'butcher'
       ? 'The old man lowers his cleaver and sits down hard. +40 XP.'
@@ -1374,7 +1467,7 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
                   <View style={{ flexDirection: 'row', gap: 4, marginLeft: 2 }}>
                     {g0.heroes.slice(1).map((h) => (
                       <View key={h.name} accessibilityLabel={`${h.name}: ${h.hp} HP`} style={{ opacity: h.hp > 0 ? 1 : 0.4 }}>
-                        <HeadSprite look={h.look} small />
+                        <HeadSprite look={h.look} npc={h.npc} small />
                       </View>
                     ))}
                   </View>
@@ -1568,7 +1661,9 @@ export function BattleScreen({ encounter, you, onDone, onExit }: { encounter?: E
                           : phase === 'tamed'
                             ? `The ${tamedName} is heading to your base as your new critter. Tap it there to say hi!${party ? ' The rest of the pack fled.' : ''}`
                             : encounter
-                              ? kind === 'butcher'
+                              ? encounter.fled
+                                ? encounter.fled
+                                : kind === 'butcher'
                                 ? `You backed off. The ${encounter.name} is still guarding his hut.`
                                 : kind === 'boar'
                                 ? `You backed off. The ${encounter.name} is still rooting around the woods.`
@@ -1619,9 +1714,9 @@ function TargetMarker({ field, slot, beat }: { field: Field; slot: { x: number; 
   );
 }
 
-function HeadSprite({ look, small }: { look: HeroLook; small?: boolean }) {
-  const key = `${look.cls}-${look.sex}-${look.skin}-${look.hair}-${look.hairColor}`;
-  const pic = useMemo(() => gridPicture(`heroface-${key}`, heroFace(look), 2), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+function HeadSprite({ look, small, npc }: { look: HeroLook; small?: boolean; npc?: 'merchant' }) {
+  const key = npc ?? `${look.cls}-${look.sex}-${look.skin}-${look.hair}-${look.hairColor}`;
+  const pic = useMemo(() => gridPicture(`heroface-${key}`, npc ? merchantFace : () => heroFace(look), 2), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <View style={[st.portrait, { width: small ? 34 : 38, height: small ? 28 : 32 }]}>
       <Canvas style={{ width: 32, height: 26 }}>

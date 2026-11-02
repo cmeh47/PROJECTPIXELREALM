@@ -237,3 +237,5 @@ export function echoGrade(): Grade {
   return r < 0.45 ? 'perfect' : r < 0.85 ? 'good' : 'miss';
 }
 export const ECHO_DEFENSE = { parry: 0.4, dodge: 0.15 };
+// An NPC ally's one heavy swing a round (Puul's walking stick), its grade rolled like an Echo's.
+export const NPC_STRIKE = { damage: 11, brk: 16 };

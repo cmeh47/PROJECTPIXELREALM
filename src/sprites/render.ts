@@ -2,7 +2,7 @@ import { AlphaType, ColorType, createPicture, FilterMode, MipmapMode, Skia, type
 
 import { colors } from '../theme';
 import { foeLayers, heroLayers, type FoePose, type HeroPose, type Layer } from './characters';
-import type { Grid } from './pixel';
+import { Grid } from './pixel';
 
 // '#RRGGBB' to bytes, remembered per colour.
 const rgbCache = new Map<string, [number, number, number]>();
@@ -75,6 +75,16 @@ export function heroPicture(pose: HeroPose, s: number) {
 
 export function foePicture(pose: FoePose, s: number) {
   return cached(`f${s}${JSON.stringify(pose)}`, () => drawLayers(foeLayers(pose), s));
+}
+
+// A foe-style sprite fighting on the heroes' side (Puul): the same layers, mirrored to face right.
+export function allyPicture(pose: FoePose, s: number) {
+  return cached(`a${s}${JSON.stringify(pose)}`, () => drawLayers(foeLayers(pose).map((l) => ({ grid: mirrorGrid(l.grid), alpha: l.alpha })), s));
+}
+function mirrorGrid(g: Grid): Grid {
+  const m = new Grid(g.w, g.h);
+  for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) m.c[y * g.w + (g.w - 1 - x)] = g.c[y * g.w + x];
+  return m;
 }
 
 // Pass a builder rather than a grid where the grid is costly to make: it only runs on a cache miss,
