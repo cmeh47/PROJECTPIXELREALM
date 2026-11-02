@@ -148,12 +148,11 @@ export function BaseScreen({ player }: { player: Hero }) {
   const [pops, setPops] = useState<Pop[]>([]);
   const [hintSeen, setHintSeen] = useState(false);
   const [invite, setInvite] = useState(false);
-  const [arena, setArena] = useState(false);
   const reduceMotion = useReducedMotion();
   const [battle, setBattle] = useState<{ foe: Foe; key: number } | null>(null);
-  // While a battle or the arena covers the base, the base's game loop rests.
+  // While a battle, the woods or the pack covers the base, the base's game loop rests.
   const coveredRef = useRef(false);
-  coveredRef.current = phase === 'battle' || arena || woods || pack;
+  coveredRef.current = phase === 'battle' || woods || pack;
   const [banner, setBanner] = useState<string | null>(null);
   const [talk, setTalk] = useState<Talk | null>(null);
   // Puul the merchant: lost in the Boar Woods until you save him (see npcs.ts MerchantStage).
@@ -1043,7 +1042,7 @@ export function BaseScreen({ player }: { player: Hero }) {
             <Canvas style={{ width: box.w, height: box.h }}>
               <Group transform={worldT}>
                 {ground ? <BakedImage baked={ground} s={s} /> : null}
-                <WindLayer s={s} active={phase === 'roam' && !arena && !reduceMotion} />
+                <WindLayer s={s} active={phase === 'roam' && !reduceMotion} />
                 {items.map((it) => it.node)}
                 {chop.current ? <Swipe dir={h.dir} hx={h.x} hy={h.y} s={s} /> : null}
                 {leaves.current.map((l, i) => (
@@ -1089,17 +1088,16 @@ export function BaseScreen({ player }: { player: Hero }) {
                   </View>
                 </View>
               </Framed>
-              <PackButton count={wood + meat} bump={packBump} full={packFull} onPress={() => setPack(true)} />
-              {/* The woods show their own log; this one stays out of the way under them. */}
-              {quests.length && !woods ? <QuestLog quests={quests} /> : null}
+              <View style={st.hudRow}>
+                <PackButton count={wood + meat} bump={packBump} full={packFull} onPress={() => setPack(true)} />
+                <Pressable accessibilityRole="button" accessibilityLabel={`Visitors: 1 of ${MAX_VISITORS}. Invite friends`} onPress={() => setInvite(true)} hitSlop={8}>
+                  <Chip label={`VISITORS 1/${MAX_VISITORS}`} fill={colors.butter} />
+                </Pressable>
+              </View>
             </View>
             <View style={{ gap: 6, alignItems: 'flex-end' }}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Visitors: 1 of ${MAX_VISITORS}. Invite friends`} onPress={() => setInvite(true)} hitSlop={8}>
-                <Chip label={`VISITORS 1/${MAX_VISITORS}`} fill={colors.butter} />
-              </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel="Practice arena" onPress={() => setArena(true)} hitSlop={8}>
-                <Chip label="ARENA" fill={colors.vellum} />
-              </Pressable>
+              {/* The quest log lives up in this corner, away from where you walk. The woods show their own. */}
+              {quests.length && !woods ? <QuestLog quests={quests} /> : null}
               {wild === 0 ? (
                 <Pressable accessibilityRole="button" accessibilityLabel="Reset base" onPress={resetBase} hitSlop={8}>
                   <Chip label="RESET" fill={colors.vellum} />
@@ -1136,11 +1134,6 @@ export function BaseScreen({ player }: { player: Hero }) {
               }
               onDone={endBattle}
             />
-          </View>
-        ) : null}
-        {arena ? (
-          <View style={StyleSheet.absoluteFill}>
-            <BattleScreen you={player} onExit={() => setArena(false)} />
           </View>
         ) : null}
         <FlashOverlay value={flash} />
@@ -1285,6 +1278,7 @@ const st = StyleSheet.create({
   hudPanel: { paddingHorizontal: 10, paddingVertical: 6, gap: 4 },
   counters: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   counter: { flexDirection: 'row', gap: 4, alignItems: 'center' },
+  hudRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   baseTitle: { flexDirection: 'row', gap: 4, alignItems: 'center' },
   buildBar: { position: 'absolute', left: 0, top: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
   buildTrack: { flex: 1, height: 12, borderWidth: 2, borderColor: colors.ink, backgroundColor: colors.scroll },

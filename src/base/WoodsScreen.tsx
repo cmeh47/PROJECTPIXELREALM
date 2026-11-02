@@ -779,12 +779,13 @@ export function WoodsScreen(props: WoodsProps) {
               </View>
             </View>
           </Framed>
-          <View style={{ gap: 8, alignItems: 'flex-end' }}>
-            <PackButton count={itemCount} bump={packBump} full={packFull} onPress={onOpenPack} />
-          </View>
+        </View>
+        {/* Same corners as the base: the pack under the panel, the quest log up in the top right. */}
+        <View style={[st.pack, { top: insets.top + 64 }]} pointerEvents="box-none">
+          <PackButton count={itemCount} bump={packBump} full={packFull} onPress={onOpenPack} />
         </View>
         {quests.length || (metState && pl.mode === 'lost') ? (
-          <View style={[st.quests, { top: insets.top + 64 }]} pointerEvents="box-none">
+          <View style={[st.quests, { top: insets.top + 8 }]} pointerEvents="box-none">
             <QuestLog
               quests={
                 metState && pl.mode === 'lost'
@@ -794,7 +795,6 @@ export function WoodsScreen(props: WoodsProps) {
             />
           </View>
         ) : null}
-
 
         <SwirlOverlay progress={swirl} w={box?.w ?? 0} h={box?.h ?? 0} />
       </View>
@@ -863,6 +863,7 @@ const st = StyleSheet.create({
   counters: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   counter: { flexDirection: 'row', gap: 4, alignItems: 'center' },
   toast: { position: 'absolute', left: 12, right: 12 },
-  quests: { position: 'absolute', left: 12 },
+  pack: { position: 'absolute', left: 12 },
+  quests: { position: 'absolute', right: 12 },
   toastText: { fontSize: 14, lineHeight: 19, paddingHorizontal: 12, paddingVertical: 8, textAlign: 'center' },
 });

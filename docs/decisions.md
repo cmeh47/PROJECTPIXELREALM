@@ -38,7 +38,7 @@ Decided on 2026-10-25.
 | Group turns | Simultaneous: every player picks a move and a target at once, then heroes act in order, then each enemy attacks one hero. Only the targeted player parries. |
 | Stats in battle | Decided 2026-10-31. HP sets max health (60 + 5 per point: warrior 100, mage 85). STR scales sword moves, counters and finishers, MAG scales spells and healing (both x(0.6 + 0.08 per point)). DEF softens enemy hits (x(1.2 - 0.05 per point): warrior takes 85%, mage 105%). SPD sets the order heroes act in a group round: allies quicker than you act before your move, ties go to you. |
 | Mage spells | Decided 2026-10-31 from storyboard sheet 3. The mage casts from where it stands instead of dashing in. Spells use glyph chains: every glyph of the spell appears at once with its place written inside it as a Roman numeral (I, II, III, IV), not a number floating above. Only the next glyph has a ring closing on it; each is graded like a strike rune on the UI thread, and a tapped glyph turns butter with a dotted thread to the next. Then the spell is cast once, and its damage or healing is the sum of the glyphs' grades, scaled by MAG. Every Perfect still earns 1 AP. |
-| The mage's spells | Ember Bolt (basic, 1 glyph, earns 1 AP), Frost Lance (2 AP, 3 glyphs in a line; three Perfects shatter the frost for bonus damage and Break), Arc Chain (3 AP, 4 glyphs zigzagging across two foes, the bolt jumps between them; alone, all four hit one) and Mend (2 AP, 2 slow glyphs over the most hurt party member, you on a tie; heals, no damage). Mage Echoes cast Frost Lance with rolled glyphs. The practice arena has a WARRIOR / MAGE chip to try both classes with your look. |
+| The mage's spells | Ember Bolt (basic, 1 glyph, earns 1 AP), Frost Lance (2 AP, 3 glyphs in a line; three Perfects shatter the frost for bonus damage and Break), Arc Chain (3 AP, 4 glyphs zigzagging across two foes, the bolt jumps between them; alone, all four hit one) and Mend (2 AP, 2 slow glyphs over the most hurt party member, you on a tie; heals, no damage). Mage Echoes cast Frost Lance with rolled glyphs. The practice arena (button archived 2026-11-02) has a WARRIOR / MAGE chip to try both classes with your look. |
 | Taming in group fights | The player picks which monster to tame. A success ends the battle and the rest of the pack flees. Only one tame per battle, except in a live co-op battle, where every player who picks TAME in the same round gets their own roll, so several can be tamed. |
 | Battle screen | The scene fills the screen edge to edge; the command menu is docked to the bottom. A full party zooms the camera out so all heroes and enemies are on the field. |
 
@@ -82,3 +82,13 @@ Decided on 2026-10-25.
 | Escort | He follows the path you walk, all the way out the west gap. Boars you meet on the way fight both of you. Reaching the base completes the escort. |
 | The stand | On the base he asks for 20 wood to build a merchant stand (Yes or Not yet; he asks again later). He waits at a staked-out plot on the left side of the base, by the west tree ring (moved there 2026-11-02). Handing in the wood builds the stand at once: a plank counter under a butter-and-rose striped awning. Trading at it comes later. |
 | Server | `merchant_step` moves the story forward one step at a time (`rescued`, `home`, `accept`, `handin`) and checks the 20 wood. The rescue battle's result is still trusted from the app. |
+
+## Base HUD (decided 2026-11-02)
+
+Nothing on the HUD may block the player's view of where they walk.
+
+| Piece | Decision |
+|---|---|
+| Quest log | Top-right corner on the base and in the woods. It never unrolls by itself: it stays a single "QUESTS" band, and a bobbing NEW tag shows when a quest is added or ready to hand in. Tapping the band unrolls it and clears the tag; tapping again rolls it up. |
+| Visitors | The VISITORS chip sits under the YOUR BASE panel, right of the inventory bag. |
+| Arena | The ARENA button is archived (taken off the base HUD). The practice battle itself still exists in `BattleScreen` (no `encounter`) and can come back as a dev or menu option. |

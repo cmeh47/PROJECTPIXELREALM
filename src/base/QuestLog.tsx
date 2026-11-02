@@ -1,7 +1,21 @@
 import { Canvas, Picture } from '@shopify/react-native-skia';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, LinearTransition, SlideInLeft, SlideOutLeft } from 'react-native-reanimated';
+import Animated, {
+  cancelAnimation,
+  FadeIn,
+  FadeOut,
+  LinearTransition,
+  SlideInRight,
+  SlideOutRight,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { foePortrait } from '../sprites/characters';
 import { gridPicture } from '../sprites/render';
@@ -13,52 +27,40 @@ import { logPicture } from './art';
 // leading someone home; `turnIn` is the step to take, shown under the title.
 export type Quest = { id: string; title: string; giver: 'butcher' | 'merchant'; item: 'wood' | 'go'; have: number; need: number; turnIn: string };
 
-// What the log last unrolled to show (which quests, and which were ready to hand in). Shared by
-// the base and the woods, so walking between them doesn't unroll it again.
-let lastShown = '';
-// How long a new or ready quest stays unrolled before the log rolls itself back up.
-const SHOW_MS = 4000;
+// The news the player has already seen (which quests, and which were ready to hand in). Shared by
+// the base and the woods, so walking between them doesn't flag the same news twice.
+let seen = '';
 
-// The quest log: a little parchment scroll under the base panel. It's only on screen while you
-// have a quest, and it keeps out of your way: it sits rolled up to a single band, unrolls on its
-// own for a few seconds when a quest is added or becomes ready to hand in, then rolls back up.
-// Tap its header to unroll or roll it yourself; it then stays the way you left it until the next
-// quest change.
+// The quest log: a little parchment scroll in the top-right corner, away from where you walk. It's
+// only on screen while you have a quest, and it never unrolls by itself: it sits rolled up to a
+// single band, and a NEW tag on the band tells you a quest was added or is ready to hand in. Tap
+// the band to unroll it (which also clears the tag) and tap again to roll it up.
 export function QuestLog({ quests }: { quests: Quest[] }) {
   const sig = quests.map((q) => `${q.id}:${q.have >= q.need ? 1 : 0}`).join('|');
-  const [open, setOpen] = useState(sig !== lastShown);
-  const touched = useRef(false);
+  const [open, setOpen] = useState(false);
+  const fresh = sig !== seen && !open;
   useEffect(() => {
-    // Whatever changed, the log rolls back up after a moment; it only unrolls for news it hasn't
-    // shown yet.
-    if (sig !== lastShown) {
-      lastShown = sig;
-      touched.current = false;
-      setOpen(true);
-    }
-    const id = setTimeout(() => {
-      if (!touched.current) setOpen(false);
-    }, SHOW_MS);
-    return () => clearTimeout(id);
-  }, [sig]);
+    if (open) seen = sig;
+  }, [open, sig]);
   const toggle = () => {
     haptic('light');
-    touched.current = true;
+    seen = sig;
     setOpen((o) => !o);
   };
   return (
-    <Animated.View entering={SlideInLeft.duration(240)} exiting={SlideOutLeft.duration(200)} layout={LinearTransition.duration(180)} style={st.wrap}>
+    <Animated.View entering={SlideInRight.duration(240)} exiting={SlideOutRight.duration(200)} layout={LinearTransition.duration(180)} style={open ? st.wrapOpen : st.wrap}>
       <Rod />
       <Animated.View layout={LinearTransition.duration(180)} style={st.paper}>
         <Pressable
           onPress={toggle}
           accessibilityRole="button"
-          accessibilityLabel={`Quest log, ${quests.length} ${quests.length === 1 ? 'quest' : 'quests'}. ${open ? 'Roll up' : 'Unroll'}`}
+          accessibilityLabel={`Quest log, ${quests.length} ${quests.length === 1 ? 'quest' : 'quests'}.${fresh ? ' New.' : ''} ${open ? 'Roll up' : 'Unroll'}`}
           accessibilityState={{ expanded: open }}
           hitSlop={6}
           style={st.header}
         >
-          <Text style={st.headerText}>QUESTS · {quests.length}</Text>
+          <Text numberOfLines={1} style={st.headerText}>QUESTS · {quests.length}</Text>
+          {fresh ? <NewTag /> : null}
           <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}>
             <PixelIcon name="next" size={2} color={colors.barkDeep} />
           </View>
@@ -121,6 +123,25 @@ function QuestEntry({ q }: { q: Quest }) {
   );
 }
 
+// A small butter tag that bobs gently until the log is opened.
+function NewTag() {
+  const reduceMotion = useReducedMotion();
+  const y = useSharedValue(0);
+  useEffect(() => {
+    if (reduceMotion) return;
+    // 12 fps steps: two frames up, two frames down, then a rest.
+    y.value = withRepeat(withSequence(withTiming(-2, { duration: 0 }), withDelay(167, withTiming(0, { duration: 0 })), withDelay(500, withTiming(0, { duration: 0 }))), -1);
+    return () => cancelAnimation(y);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reduceMotion]);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
+  return (
+    <Animated.View entering={FadeIn.duration(120)} style={[st.newTag, style]}>
+      <Text style={st.newText}>NEW</Text>
+    </Animated.View>
+  );
+}
+
 // A wooden roller with a knob at each end; the paper hangs between two of them.
 function Rod() {
   return (
@@ -135,7 +156,9 @@ function Rod() {
 }
 
 const st = StyleSheet.create({
-  wrap: { width: 184 },
+  // Rolled up it's a short band; unrolled it widens to fit the quest titles.
+  wrap: { width: 164 },
+  wrapOpen: { width: 184 },
   rod: { flexDirection: 'row', alignItems: 'center', height: 12, zIndex: 1 },
   knob: { width: 7, height: 12, backgroundColor: colors.barkDeep, borderWidth: 2, borderColor: colors.ink },
   bar: { flex: 1, height: 9, backgroundColor: colors.bark, borderTopWidth: 2, borderBottomWidth: 2, borderColor: colors.ink, justifyContent: 'flex-start' },
@@ -151,8 +174,10 @@ const st = StyleSheet.create({
     paddingTop: 2,
     paddingBottom: 6,
   },
-  header: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerText: { fontFamily: fonts.stat, fontSize: 11, lineHeight: 14, color: colors.barkDeep },
+  header: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4 },
+  newTag: { backgroundColor: colors.butter, borderWidth: 2, borderColor: colors.ink, paddingHorizontal: 3 },
+  newText: { fontFamily: fonts.stat, fontSize: 9, lineHeight: 11, color: colors.ink },
+  headerText: { flex: 1, fontFamily: fonts.stat, fontSize: 11, lineHeight: 14, color: colors.barkDeep },
   entry: { gap: 4, paddingBottom: 2 },
   rule: { height: 2, backgroundColor: colors.bark, opacity: 0.35, marginBottom: 2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
