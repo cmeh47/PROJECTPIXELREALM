@@ -156,8 +156,9 @@ export const DETAILS: Detail[] = (() => {
   return out;
 })();
 
-// Puul's stand, west of the plaza: the plot's frame top-left (44 x 38, see sprites/merchant.ts),
-// the footing you can't walk through once it's built, and where Puul stands in front of it.
-export const STAND = { x: 104, y: 168 };
+// Puul's stand, on the left side of the lot by the west tree ring: the plot's frame top-left
+// (44 x 38, see sprites/merchant.ts), the footing you can't walk through once it's built, and where
+// Puul stands in front of it.
+export const STAND = { x: 22, y: 196 };
 export const STAND_BOX = { x: STAND.x + 3, y: STAND.y + 20, w: 38, h: 15 };
 export const PUUL_POST = { x: STAND.x + 22, y: STAND.y + 48 };

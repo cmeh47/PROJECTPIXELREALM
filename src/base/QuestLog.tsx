@@ -1,5 +1,5 @@
 import { Canvas, Picture } from '@shopify/react-native-skia';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut, LinearTransition, SlideInLeft, SlideOutLeft } from 'react-native-reanimated';
 
@@ -13,12 +13,37 @@ import { logPicture } from './art';
 // leading someone home; `turnIn` is the step to take, shown under the title.
 export type Quest = { id: string; title: string; giver: 'butcher' | 'merchant'; item: 'wood' | 'go'; have: number; need: number; turnIn: string };
 
-// The quest log: a little parchment scroll under the base panel. Tap its header to roll it up to
-// a single band, and again to unroll it. It's only on screen while you have a quest.
+// What the log last unrolled to show (which quests, and which were ready to hand in). Shared by
+// the base and the woods, so walking between them doesn't unroll it again.
+let lastShown = '';
+// How long a new or ready quest stays unrolled before the log rolls itself back up.
+const SHOW_MS = 4000;
+
+// The quest log: a little parchment scroll under the base panel. It's only on screen while you
+// have a quest, and it keeps out of your way: it sits rolled up to a single band, unrolls on its
+// own for a few seconds when a quest is added or becomes ready to hand in, then rolls back up.
+// Tap its header to unroll or roll it yourself; it then stays the way you left it until the next
+// quest change.
 export function QuestLog({ quests }: { quests: Quest[] }) {
-  const [open, setOpen] = useState(true);
+  const sig = quests.map((q) => `${q.id}:${q.have >= q.need ? 1 : 0}`).join('|');
+  const [open, setOpen] = useState(sig !== lastShown);
+  const touched = useRef(false);
+  useEffect(() => {
+    // Whatever changed, the log rolls back up after a moment; it only unrolls for news it hasn't
+    // shown yet.
+    if (sig !== lastShown) {
+      lastShown = sig;
+      touched.current = false;
+      setOpen(true);
+    }
+    const id = setTimeout(() => {
+      if (!touched.current) setOpen(false);
+    }, SHOW_MS);
+    return () => clearTimeout(id);
+  }, [sig]);
   const toggle = () => {
     haptic('light');
+    touched.current = true;
     setOpen((o) => !o);
   };
   return (

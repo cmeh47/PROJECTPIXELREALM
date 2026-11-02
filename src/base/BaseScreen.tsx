@@ -1090,7 +1090,8 @@ export function BaseScreen({ player }: { player: Hero }) {
                 </View>
               </Framed>
               <PackButton count={wood + meat} bump={packBump} full={packFull} onPress={() => setPack(true)} />
-              {quests.length ? <QuestLog quests={quests} /> : null}
+              {/* The woods show their own log; this one stays out of the way under them. */}
+              {quests.length && !woods ? <QuestLog quests={quests} /> : null}
             </View>
             <View style={{ gap: 6, alignItems: 'flex-end' }}>
               <Pressable accessibilityRole="button" accessibilityLabel={`Visitors: 1 of ${MAX_VISITORS}. Invite friends`} onPress={() => setInvite(true)} hitSlop={8}>
