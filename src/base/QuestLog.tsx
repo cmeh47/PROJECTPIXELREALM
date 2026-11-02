@@ -17,15 +17,18 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
+import { bartenderBadge, firewoodIcon } from '../sprites/bar';
 import { foePortrait } from '../sprites/characters';
 import { gridPicture } from '../sprites/render';
 import { colors, fonts } from '../theme';
 import { haptic, PixelIcon, SegBar, styles as t } from '../ui/pixel';
 import { logPicture } from './art';
 
-// item 'wood': bring `need` wood (a bar fills as you gather it). 'go': a task with no count, like
-// leading someone home; `turnIn` is the step to take, shown under the title.
-export type Quest = { id: string; title: string; giver: 'butcher' | 'merchant'; item: 'wood' | 'go'; have: number; need: number; turnIn: string };
+// item 'wood' or 'firewood': gather `need` of it (a bar fills as you go). 'go': a task with no count,
+// like leading someone home; `turnIn` is the step to take, shown under the title.
+export type Quest = { id: string; title: string; giver: 'butcher' | 'merchant' | 'bartender'; item: 'wood' | 'firewood' | 'go'; have: number; need: number; turnIn: string };
+
+const giverFace = (giver: Quest['giver']) => (giver === 'bartender' ? bartenderBadge() : foePortrait(giver));
 
 // The news the player has already seen (which quests, and which were ready to hand in). Shared by
 // the base and the woods, so walking between them doesn't flag the same news twice.
@@ -79,7 +82,7 @@ export function QuestLog({ quests }: { quests: Quest[] }) {
 }
 
 function QuestEntry({ q }: { q: Quest }) {
-  const face = useMemo(() => gridPicture(`quest-giver-${q.giver}`, foePortrait(q.giver), 1), [q.giver]);
+  const face = useMemo(() => gridPicture(`quest-giver-${q.giver}`, () => giverFace(q.giver), 1), [q.giver]);
   const have = Math.min(q.have, q.need);
   const ready = have >= q.need;
   if (q.item === 'go') {
@@ -99,7 +102,7 @@ function QuestEntry({ q }: { q: Quest }) {
     );
   }
   return (
-    <View style={st.entry} accessibilityLabel={`${q.title}. Wood ${have} of ${q.need}.${ready ? ` ${q.turnIn}.` : ''}`}>
+    <View style={st.entry} accessibilityLabel={`${q.title}. ${q.item === 'firewood' ? 'Firewood' : 'Wood'} ${have} of ${q.need}.${ready ? ` ${q.turnIn}.` : ''}`}>
       <View style={st.rule} />
       <View style={st.titleRow}>
         <View style={st.face}>
@@ -111,7 +114,7 @@ function QuestEntry({ q }: { q: Quest }) {
       </View>
       <View style={st.goal}>
         <Canvas style={{ width: 14, height: 9 }}>
-          <Picture picture={logPicture(1)} />
+          <Picture picture={q.item === 'firewood' ? firewoodPicture() : logPicture(1)} />
         </Canvas>
         <Text style={t.stat}>
           {have}/{q.need}
@@ -122,6 +125,8 @@ function QuestEntry({ q }: { q: Quest }) {
     </View>
   );
 }
+
+const firewoodPicture = () => gridPicture('quest-firewood', firewoodIcon, 1);
 
 // A small butter tag that bobs gently until the log is opened.
 function NewTag() {

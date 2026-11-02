@@ -1,5 +1,7 @@
+import { PATRONS, bartenderPortrait, patronPortrait, strangerPortrait, type BartenderMood, type Patron } from '../sprites/bar';
 import { butcherPortrait, shroomiePortrait, type ButcherMood } from '../sprites/characters';
 import { merchantPortrait, type MerchantMood } from '../sprites/merchant';
+import { ownerPortrait, type OwnerMood } from '../sprites/town';
 import type { Script, Speaker } from './Conversation';
 
 // Who you can talk to on the base, and what they say.
@@ -145,4 +147,115 @@ export const MERCHANT_SCRIPT: Script = {
   quest: { say: `${STAND_WOOD} wood is all I need. The trees round here will do nicely.`, mood: 'calm', name: 'Puul' },
   ready: { say: `That's ${STAND_WOOD} wood! Stand back, I know just what to do.`, mood: 'happy', name: 'Puul', end: 'handin' },
   open: { say: "Puul's stand is open! When the trade caravans start coming by, I'll handle all your deals.", mood: 'happy', name: 'Puul' },
+};
+
+// ---------- The town ----------
+// Mira runs the critter store with three little Shroomie helpers. She's "???" until she says her
+// name. The store isn't open yet: what it sells comes later.
+const shopkeeperVoice = require('../../assets/sounds/shopkeeper.wav');
+
+export const OWNER_SPEAKER: Speaker = {
+  key: 'shopkeeper',
+  name: '???',
+  voice: shopkeeperVoice,
+  loop: true,
+  portrait: (mood, talking) => ownerPortrait((mood as OwnerMood) ?? 'calm', talking),
+};
+export const HELPER_NAMES = ['Pip', 'Dot', 'Bun'];
+
+// 'hi' the first time you meet her, 'again' after that.
+export const OWNER_SCRIPT: Script = {
+  hi: { say: "Oh! Hello there! You must be new in town. Welcome!", mood: 'happy', next: 'name' },
+  name: { say: "I'm Mira, and this is my critter store. I look after all sorts of little creatures.", mood: 'calm', name: 'Mira', next: 'helpers' },
+  helpers: { say: 'Those three are my helpers, Pip, Dot and Bun. Say hi, everyone!', mood: 'happy', next: 'soon' },
+  soon: { say: "Everything in the store is for sale, for coins. We're still stocking the shelves, so come back soon!", mood: 'calm', end: 'met' },
+  again: { say: "Welcome back! The shelves are still filling up. Everything's for sale for coins once they're stocked!", mood: 'happy', name: 'Mira' },
+};
+
+export function helperSpeaker(look: number): Speaker {
+  return critterSpeaker(HELPER_NAMES[look] ?? 'Helper', look);
+}
+// Each helper squeaks something a little different.
+export const HELPER_SCRIPT: Script = {
+  hi0: { say: '...Weeiii! Weeiii-wi!' },
+  hi1: { say: '...Wi? ...Wiiiiii!' },
+  hi2: { say: '...WEEEI! Wi-wi-wi!' },
+};
+
+// ---------- The bar ----------
+// Barley pours the drinks. He welcomes you to town and asks you to split his firewood: a log pile
+// and a chopping block out back, round the right side of the bar.
+const bartenderVoice = require('../../assets/sounds/bartender.wav');
+const patronVoices = {
+  low: require('../../assets/sounds/patron_low.wav'),
+  high: require('../../assets/sounds/patron_high.wav'),
+  old: require('../../assets/sounds/patron_old.wav'),
+};
+
+// How far you've got with Barley: 'new' until you take the job, 'quest' while you split the logs,
+// 'done' once you've told him.
+export type BartenderStage = 'new' | 'quest' | 'done';
+export const FIREWOOD_NEED = 5;
+export const FIREWOOD_REWARD = 15; // coins
+
+export const BARTENDER_SPEAKER: Speaker = {
+  key: 'bartender',
+  name: '???',
+  voice: bartenderVoice,
+  loop: true,
+  portrait: (mood, talking) => bartenderPortrait((mood as BartenderMood) ?? 'calm', talking),
+};
+
+// Where he starts: 'hi' the first time, 'ask' if you turned the job down, 'quest' / 'ready' while
+// you're on it, 'done' after. End tags: 'accept' starts the job, 'decline' leaves it open,
+// 'handin' tells him the firewood's split.
+export function bartenderScript(have: number): Script {
+  return {
+    hi: { say: "Well now! A new face. You're new in town, aren't you?", mood: 'happy', next: 'name' },
+    name: { say: "Name's Barley. I pour the drinks round here. Glad to have you, friend!", mood: 'happy', name: 'Barley', next: 'fire' },
+    fire: { say: "Say... could I ask you a favor? My fire's burning low and I'm clean out of firewood.", mood: 'calm', next: 'ask' },
+    ask: {
+      say: `There's a pile of logs out back, round the right side. Would you split some on the block for me? ${FIREWOOD_NEED} logs should be enough.`,
+      mood: 'calm',
+      name: 'Barley',
+      choices: [
+        { label: 'Sure thing', next: 'yes' },
+        { label: 'Not now', next: 'no' },
+      ],
+    },
+    yes: { say: "You're a lifesaver! Out the door and round the right side. Mind your toes.", mood: 'happy', end: 'accept' },
+    no: { say: 'No trouble. The offer stands... and so does the fire, barely.', mood: 'calm', end: 'decline' },
+    quest: {
+      say: have > 0 ? `${have} split so far! ${FIREWOOD_NEED} logs should be enough. The block's out back, round the right side.` : `The log pile's out back, round the right side. ${FIREWOOD_NEED} logs should be enough.`,
+      mood: 'calm',
+      name: 'Barley',
+    },
+    ready: { say: 'Is that the sound of firewood stacking up? All five! That will keep her roaring for a week.', mood: 'happy', name: 'Barley', next: 'pay' },
+    pay: { say: "Here, for your trouble. And from now on you're one of the regulars.", mood: 'happy', end: 'handin' },
+    done: { say: "Fire's roaring, thanks to you. Pull up a stool any time, friend.", mood: 'happy', name: 'Barley' },
+  };
+}
+
+export function patronSpeaker(i: number): Speaker {
+  const p: Patron = PATRONS[i];
+  return { key: `patron-${i}`, name: p.name, voice: patronVoices[p.voice], loop: true, portrait: (_m, talking) => patronPortrait(p, talking) };
+}
+// Three tables of two. Each talks about the friend across the table. 'warm' once the fire's lit.
+export const PATRON_SCRIPTS: Script[] = [
+  { hi: { say: "Marigold says that's her lucky chair. She's lost every game of cards she's played in it." } },
+  { hi: { say: "Don't listen to Hob. The chair is lucky. I'm just terrible at cards." } },
+  { hi: { say: 'Boars are getting bolder out in the woods. Wendel swears he fought one off with a spoon.' } },
+  {
+    hi: { say: 'A soup spoon, mind. Back in my day we... hm? Where was I? Oh, my knees ache in this cold.' },
+    warm: { say: 'Ahh, a proper fire at last. My old knees thank you, young one.' },
+  },
+  { hi: { say: "Mira's little helpers waved at me this morning! Fen says I'm too old to squeal about it. I'm not." } },
+  { hi: { say: "Don't stare at the one in the corner. Been sitting there for days and never ordered a drop." } },
+];
+
+// The hooded stranger in the dark corner. Never a word.
+export const STRANGER_SPEAKER: Speaker = { key: 'stranger', name: '???', voice: bartenderVoice, portrait: () => strangerPortrait() };
+export const STRANGER_SCRIPT: Script = {
+  hi: { say: '...', silent: true, next: 'hi2' },
+  hi2: { say: '...', silent: true },
 };

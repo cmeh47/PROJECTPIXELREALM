@@ -23,11 +23,11 @@ import {
   signPicture,
   standPicture,
   stumpPicture,
-  swipePicture,
   toadOwPicture,
+  townSignPicture,
   treePicture,
 } from './art';
-import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, PUUL_POST, SIGN, SPAWN, STAND, STAND_BOX, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
+import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, PUUL_POST, SIGN, SOUTH_GAP, SPAWN, STAND, STAND_BOX, TOAD_SPAWNS, TOWN_SIGN, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
 import { QuestLog, type Quest } from './QuestLog';
 import { followY, newVCam } from './camera';
@@ -36,11 +36,12 @@ import { MERCHANT_OW_H, MERCHANT_OW_W } from '../sprites/merchant';
 import type { Hero } from '../net/useHero';
 import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
 import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
-import { BUTCHER_SPEAKER, CRITTER_SCRIPT, MERCHANT_SCRIPT, PUUL_SPEAKER, STAND_WOOD, butcherScript, critterSpeaker, type MerchantStage } from './npcs';
+import { BUTCHER_SPEAKER, CRITTER_SCRIPT, FIREWOOD_NEED, FIREWOOD_REWARD, MERCHANT_SCRIPT, PUUL_SPEAKER, STAND_WOOD, butcherScript, critterSpeaker, type BartenderStage, type MerchantStage } from './npcs';
 import { CoinCounter, InventorySheet, MEAT_PRICE, PackButton, roomFor, type Carry } from './Inventory';
+import { TownScreen } from './TownScreen';
 import { WoodsScreen } from './WoodsScreen';
 import { BakedImage, WindLayer } from './WindLayer';
-import { Bubble, FlashOverlay, Icon, LeafWipe, Mover, Static, SwirlOverlay } from './pieces';
+import { Bubble, FlashOverlay, Icon, LeafWipe, Mover, Static, Swipe, SwirlOverlay } from './pieces';
 
 // ---------- Tuning ----------
 const HERO_SPEED = 64; // art px per second
@@ -53,7 +54,7 @@ const GRACE_MS = 2500; // after fleeing or losing, Shroomies ignore you for a mo
 const MAX_VISITORS = 4;
 const HUT_WOOD = 10; // the butcher's quest
 const BUILD_MS = 10 * 60_000; // he rebuilds his shack in 10 real minutes
-const WIPE_MS = 6 * 83; // the leaf wipe between the base and the Boar Woods: 6 ticks
+const WIPE_MS = 6 * 83; // the leaf wipe between the base and the Boar Woods or the town: 6 ticks
 const BOAR_RESPAWN_MS = 2 * 60_000;
 
 const TOAD_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie', 'Mossback Shroomie'];
@@ -140,6 +141,13 @@ export function BaseScreen({ player }: { player: Hero }) {
   const [groundMeat, setGroundMeat] = useState(0);
   const [boarsBackAt, setBoarsBackAt] = useState<(number | null)[]>([null, null, null]);
   const [woods, setWoods] = useState(false);
+  // The town south of the base, and whether you've met Mira at the critter store yet.
+  const [town, setTown] = useState(false);
+  const [metOwner, setMetOwner] = useState(false);
+  // Barley the bartender's firewood job, and whether he's introduced himself yet this session.
+  const [bartender, setBartender] = useState<BartenderStage>('new');
+  const [firewood, setFirewood] = useState(0);
+  const [metBarley, setMetBarley] = useState(false);
   const [pack, setPack] = useState(false);
   const [packBump, setPackBump] = useState(0);
   const [packFull, setPackFull] = useState(0);
@@ -152,7 +160,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   const [battle, setBattle] = useState<{ foe: Foe; key: number } | null>(null);
   // While a battle, the woods or the pack covers the base, the base's game loop rests.
   const coveredRef = useRef(false);
-  coveredRef.current = phase === 'battle' || woods || pack;
+  coveredRef.current = phase === 'battle' || woods || town || pack;
   const [banner, setBanner] = useState<string | null>(null);
   const [talk, setTalk] = useState<Talk | null>(null);
   // Puul the merchant: lost in the Boar Woods until you save him (see npcs.ts MerchantStage).
@@ -219,8 +227,10 @@ export function BaseScreen({ player }: { player: Hero }) {
   // ---------- Collision ----------
   const blocked = useCallback((x: number, y: number) => {
     const gap = y > EAST_GAP.walkY0 && y < EAST_GAP.walkY1 && x < MAP_W - 1;
-    if (x < 14 || (x > MAP_W - 14 && !gap) || y < 46 || y > MAP_H - 10) return true;
+    const southGap = x > SOUTH_GAP.walkX0 && x < SOUTH_GAP.walkX1 && y < MAP_H - 1;
+    if (x < 14 || (x > MAP_W - 14 && !gap) || y < 46 || (y > MAP_H - 10 && !southGap)) return true;
     if (Math.abs(x - SIGN.x) < 4 && y > SIGN.y - 3 && y < SIGN.y + 2) return true;
+    if (Math.abs(x - TOWN_SIGN.x) < 4 && y > TOWN_SIGN.y - 3 && y < TOWN_SIGN.y + 2) return true;
     if (x > HOUSE_BOX.x - 3 && x < HOUSE_BOX.x + HOUSE_BOX.w + 3 && y > HOUSE_BOX.y && y < HOUSE_BOX.y + HOUSE_BOX.h + 2) return true;
     if (inPond({ x, y }, 3)) return true;
     if (x > HUT_BOX.x && x < HUT_BOX.x + HUT_BOX.w && y > HUT_BOX.y && y < HUT_BOX.y + HUT_BOX.h) return true;
@@ -451,23 +461,31 @@ export function BaseScreen({ player }: { player: Hero }) {
     }
   };
 
-  // ---------- The Boar Woods ----------
-  // A band of leaves blows across; the scene swaps under it.
-  const travel = async (toWoods: boolean) => {
+  // ---------- The Boar Woods and the town ----------
+  // A band of leaves blows across; the scene swaps under it. Coming home, you're back on the base
+  // just inside the gap you left by, facing home.
+  const travel = async (to: 'woods' | 'town' | 'base') => {
     if (wipe.value > 0) return;
     goal.current = { to: null, holding: false, chop: null, downAt: 0 };
     finger.current = null;
     setWiping(true);
     wipe.value = withTiming(1, { duration: WIPE_MS, easing: Easing.linear });
     await wait(WIPE_MS / 2);
-    setWoods(toWoods);
-    if (!toWoods && merchantRef.current === 'escort') setTimeout(arriveHome, WIPE_MS / 2);
-    if (!toWoods) {
-      // Back on the base, just inside the gap, facing home.
+    const from = woodsRef.current ? 'woods' : townRef.current ? 'town' : 'base';
+    setWoods(to === 'woods');
+    setTown(to === 'town');
+    if (to === 'base' && from === 'woods' && merchantRef.current === 'escort') setTimeout(arriveHome, WIPE_MS / 2);
+    if (to === 'base') {
       const h = hero.current;
-      h.x = MAP_W - 22;
-      h.y = (EAST_GAP.walkY0 + EAST_GAP.walkY1) / 2;
-      h.dir = 'left';
+      if (from === 'town') {
+        h.x = (SOUTH_GAP.walkX0 + SOUTH_GAP.walkX1) / 2;
+        h.y = MAP_H - 46;
+        h.dir = 'up';
+      } else {
+        h.x = MAP_W - 22;
+        h.y = (EAST_GAP.walkY0 + EAST_GAP.walkY1) / 2;
+        h.dir = 'left';
+      }
       h.frame = 0;
       heroX.value = h.x;
       heroY.value = h.y;
@@ -566,21 +584,37 @@ export function BaseScreen({ player }: { player: Hero }) {
       if (b.merchant === 'escort') setTimeout(() => !woodsRef.current && arriveHome(), 400);
       else if (was === 'lost' || was === 'escort') Object.assign(puul.current, newFollower(PUUL_POST), { route: [] });
     }
+    if (b.bartender) setBartender(b.bartender);
+    if (b.firewood != null) setFirewood(b.firewood);
     force();
   };
   const { status: saveStatus, send: save } = useBaseSave(applySaved);
   const saveRef = useRef(save);
   saveRef.current = save;
 
+  // Barley's job, from the town: 'met' when he's said his name, then each step goes to the server.
+  const onBartender = (step: 'met' | 'accept' | 'split' | 'handin') => {
+    if (step === 'met') return setMetBarley(true);
+    if (step === 'accept') setBartender('quest');
+    else if (step === 'split') setFirewood((f) => Math.min(FIREWOOD_NEED, f + 1));
+    else {
+      setBartender('done');
+      setCoins((c) => c + FIREWOOD_REWARD);
+    }
+    save({ fn: 'bartender_step', step });
+  };
+
   const woodsRef = useRef(woods);
   woodsRef.current = woods;
+  const townRef = useRef(town);
+  townRef.current = town;
   const travelRef = useRef(travel);
   travelRef.current = travel;
   // 1 while the leaf wipe runs, so the gap doesn't trigger twice.
   const wipeRef = useRef(0);
   useEffect(() => {
-    if (!woods) wipeRef.current = 0;
-  }, [woods]);
+    if (!woods && !town) wipeRef.current = 0;
+  }, [woods, town]);
 
   // ---------- The game loop ----------
   useEffect(() => {
@@ -708,7 +742,14 @@ export function BaseScreen({ player }: { player: Hero }) {
             g.to = null;
             g.holding = false;
             wipeRef.current = 1;
-            travelRef.current(true);
+            travelRef.current('woods');
+          }
+          // Down through the gap in the south tree ring: the town.
+          if (h.y > SOUTH_GAP.y && h.x > SOUTH_GAP.walkX0 && h.x < SOUTH_GAP.walkX1 && wipeRef.current === 0) {
+            g.to = null;
+            g.holding = false;
+            wipeRef.current = 1;
+            travelRef.current('town');
           }
           if (moving) {
             h.walkMs += dt;
@@ -975,6 +1016,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   const hutPic = !shack ? hutPicture(s) : shackPicture(building ? 1 - buildLeft / BUILD_MS : 1, s);
   items.push({ y: HUT_BOX.y + HUT_BOX.h - 4, key: 'hut', node: <Static key="hut" pic={hutPic} x={HUT.x} y={shack ? HUT.y - 8 : HUT.y} s={s} /> });
   items.push({ y: SIGN.y, key: 'sign', node: <Static key="sign" pic={signPicture(s)} x={SIGN.x - 9} y={SIGN.y - 19} s={s} /> });
+  items.push({ y: TOWN_SIGN.y, key: 'town-sign', node: <Static key="town-sign" pic={townSignPicture(s)} x={TOWN_SIGN.x - 9} y={TOWN_SIGN.y - 21} s={s} /> });
   // Puul's plot (stakes and a sign) once he's moved in, and the stand once it's built.
   if (merchant === 'home' || merchant === 'stand' || merchant === 'open') {
     items.push({ y: STAND.y + 34, key: 'stand', node: <Static key="stand" pic={standPicture(merchant === 'open', s)} x={STAND.x} y={STAND.y} s={s} /> });
@@ -1015,6 +1057,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   if (stage === 'quest') quests.push({ id: 'hut', title: "Rebuild the butcher's hut", giver: 'butcher', item: 'wood', have: wood, need: HUT_WOOD, turnIn: 'Bring it to him' });
   if (merchant === 'escort') quests.push({ id: 'escort', title: 'Escort Puul home', giver: 'merchant', item: 'go', have: 0, need: 1, turnIn: 'Lead him out the west gap' });
   if (merchant === 'stand') quests.push({ id: 'stand', title: "Build Puul's stand", giver: 'merchant', item: 'wood', have: wood, need: STAND_WOOD, turnIn: 'Bring it to him' });
+  if (bartender === 'quest') quests.push({ id: 'firewood', title: 'Split firewood for Barley', giver: 'bartender', item: 'firewood', have: firewood, need: FIREWOOD_NEED, turnIn: 'Tell him in the bar' });
 
   const ground = groundImage();
   const worldT = useDerivedValue(() => [{ translateX: -camX.value * s }, { translateY: -camY.value * s }]);
@@ -1097,7 +1140,7 @@ export function BaseScreen({ player }: { player: Hero }) {
             </View>
             <View style={{ gap: 6, alignItems: 'flex-end' }}>
               {/* The quest log lives up in this corner, away from where you walk. The woods show their own. */}
-              {quests.length && !woods ? <QuestLog quests={quests} /> : null}
+              {quests.length && !woods && !town ? <QuestLog quests={quests} /> : null}
               {wild === 0 ? (
                 <Pressable accessibilityRole="button" accessibilityLabel="Reset base" onPress={resetBase} hitSlop={8}>
                   <Chip label="RESET" fill={colors.vellum} />
@@ -1151,10 +1194,31 @@ export function BaseScreen({ player }: { player: Hero }) {
               onOpenPack={() => setPack(true)}
               onHunt={onHunt}
               onPickUp={onPickUp}
-              onLeave={() => travel(false)}
+              onLeave={() => travel('base')}
               covered={pack}
               merchant={merchant}
               onRescued={onRescued}
+              quests={quests}
+            />
+          </View>
+        ) : null}
+        {town ? (
+          <View style={StyleSheet.absoluteFill}>
+            <TownScreen
+              player={player}
+              coins={coins}
+              itemCount={wood + meat}
+              packBump={packBump}
+              packFull={packFull}
+              onOpenPack={() => setPack(true)}
+              onLeave={() => travel('base')}
+              covered={pack || wiping}
+              metOwner={metOwner}
+              onMeetOwner={() => setMetOwner(true)}
+              bartender={bartender}
+              firewood={firewood}
+              metBarley={metBarley}
+              onBartender={onBartender}
               quests={quests}
             />
           </View>
@@ -1189,15 +1253,6 @@ export function BaseScreen({ player }: { player: Hero }) {
 }
 
 // ---------- Drawing pieces ----------
-
-function Swipe({ dir, hx, hy, s }: { dir: Dir; hx: number; hy: number; s: number }) {
-  const off = dir === 'left' ? { x: -16, y: -16 } : dir === 'right' ? { x: 4, y: -16 } : dir === 'up' ? { x: -4, y: -30 } : { x: -4, y: -8 };
-  return (
-    <Group transform={[{ translateX: Math.round(hx + off.x) * s }, { translateY: Math.round(hy + off.y) * s }]}>
-      <Picture picture={swipePicture(dir === 'left', s)} />
-    </Group>
-  );
-}
 
 function Heart({ x, y, beat, s }: { x: SharedValue<number>; y: SharedValue<number>; beat: SharedValue<number>; s: number }) {
   const transform = useDerivedValue(() => [{ translateX: Math.round(x.value - 4) * s }, { translateY: Math.round(y.value - 26 - beat.value) * s }]);

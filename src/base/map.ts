@@ -24,6 +24,8 @@ export const PATH: { x: number; y: number; w: number; h: number }[] = [
   { x: DOOR.x - 32, y: DOOR.y + 128, w: 64, h: 41 },
   // On east past the pond and out through the gap in the tree ring, to the Boar Woods.
   { x: DOOR.x + 30, y: DOOR.y + 138, w: MAP_W - DOOR.x - 30, h: 21 },
+  // And south from the plaza, out through the gap in the bottom of the tree ring, to the town.
+  { x: DOOR.x - 12, y: DOOR.y + 168, w: 24, h: MAP_H - DOOR.y - 168 },
 ];
 
 // The gap in the east tree ring where the path leaves for the Boar Woods: no border trees grow
@@ -31,6 +33,12 @@ export const PATH: { x: number; y: number; w: number; h: number }[] = [
 export const EAST_GAP = { x: MAP_W - 10, y0: 206, y1: 290, walkY0: DOOR.y + 136, walkY1: DOOR.y + 161 };
 // The sign by the gap, with a boar head on its board. x, y = the foot of its post.
 export const SIGN = { x: MAP_W - 30, y: DOOR.y + 128 };
+
+// The gap in the south tree ring where the path leaves for the town: no border trees grow with
+// their trunks between x0 and x1, and walking down past y between walkX0 and walkX1 takes you there.
+export const SOUTH_GAP = { y: MAP_H - 30, x0: DOOR.x - 24, x1: DOOR.x + 24, walkX0: DOOR.x - 10, walkX1: DOOR.x + 10 };
+// The town's signpost, beside the path just inside the gap. x, y = the foot of its post.
+export const TOWN_SIGN = { x: DOOR.x + 22, y: MAP_H - 40 };
 
 export const TOAD_SPAWNS: Pt[] = [
   { x: 134, y: 244 },
@@ -116,7 +124,8 @@ export const TREES: TreeSpot[] = (() => {
   // Clear the gap, then number the trees by their place in the list (the base indexes them by id).
   return out
     .filter((t) => !(t.border && t.x > MAP_W - 30 && t.y > EAST_GAP.y0 && t.y < EAST_GAP.y1))
-    .filter((t) => t.border || Math.hypot(t.x - SIGN.x, t.y - SIGN.y) > 18)
+    .filter((t) => !(t.border && t.y > MAP_H - 20 && t.x > SOUTH_GAP.x0 - 8 && t.x < SOUTH_GAP.x1 + 8))
+    .filter((t) => t.border || (Math.hypot(t.x - SIGN.x, t.y - SIGN.y) > 18 && Math.hypot(t.x - TOWN_SIGN.x, t.y - TOWN_SIGN.y) > 18))
     .map((t, i) => ({ ...t, id: i }));
 })();
 

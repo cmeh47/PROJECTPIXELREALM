@@ -4,7 +4,8 @@ import { StyleSheet } from 'react-native';
 import Animated, { useAnimatedStyle, useDerivedValue, type SharedValue } from 'react-native-reanimated';
 
 import { colors } from '../theme';
-import { bubblePicture, leafPicture } from './art';
+import type { Dir } from '../sprites/overworld';
+import { bubblePicture, leafPicture, swipePicture } from './art';
 
 // Drawing pieces shared by the base and the Boar Woods: sprites placed in the world, the "!"
 // bubble, the swirl into battle and the white flash out of it.
@@ -34,6 +35,16 @@ export function Mover({ pic, x, y, w, h, s, shadow, blink }: { pic: Pic; x: Shar
         <Picture picture={pic} />
       </Group>
     </>
+  );
+}
+
+// The hero's sword swipe beside them while they chop (a tree, or a log on the chopping block).
+export function Swipe({ dir, hx, hy, s }: { dir: Dir; hx: number; hy: number; s: number }) {
+  const off = dir === 'left' ? { x: -16, y: -16 } : dir === 'right' ? { x: 4, y: -16 } : dir === 'up' ? { x: -4, y: -30 } : { x: -4, y: -8 };
+  return (
+    <Group transform={[{ translateX: Math.round(hx + off.x) * s }, { translateY: Math.round(hy + off.y) * s }]}>
+      <Picture picture={swipePicture(dir === 'left', s)} />
+    </Group>
   );
 }
 

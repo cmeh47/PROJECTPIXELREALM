@@ -467,6 +467,18 @@ function stampHead(g: Grid, look: HeroLook, d: OwDir, ox: number, top: number) {
   g.stamp(gear.map, ox + (gear.dx ?? 0), top + (gear.dy ?? 0), sw);
 }
 
+// The same head with no helm or hat, for townsfolk who share the heroes' faces and hairstyles.
+// 14 wide and 10 tall from (ox, top); long hair runs a few rows further down.
+export function stampBareHead(g: Grid, look: HeroLook, dir: 'down' | 'up' | 'left' | 'right', ox: number, top: number) {
+  const d: OwDir = dir === 'left' ? 'right' : dir;
+  const sw = lookSwap(look);
+  g.stamp(SKIN[d], ox, top, sw);
+  const face = FACES[look.sex][d];
+  if (face) g.stamp(face, ox, top + 5, sw);
+  const hair = HAIR[d][look.hair] ?? HAIR[d][0];
+  g.stamp(hair.map, ox + (hair.dx ?? 0), top + (hair.dy ?? 0), sw);
+}
+
 // frame 0 = standing, 1 and 3 = passing (body bobs up), 2 = the other foot forward.
 export function heroOw(look: HeroLook, dir: 'down' | 'up' | 'left' | 'right', frame = 0): Grid {
   const d: OwDir = dir === 'left' ? 'right' : dir;
