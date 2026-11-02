@@ -1,5 +1,6 @@
 import { butcherPortrait, shroomiePortrait, type ButcherMood } from '../sprites/characters';
 import { merchantPortrait, type MerchantMood } from '../sprites/merchant';
+import { ownerPortrait, type OwnerMood } from '../sprites/town';
 import type { Script, Speaker } from './Conversation';
 
 // Who you can talk to on the base, and what they say.
@@ -145,4 +146,37 @@ export const MERCHANT_SCRIPT: Script = {
   quest: { say: `${STAND_WOOD} wood is all I need. The trees round here will do nicely.`, mood: 'calm', name: 'Puul' },
   ready: { say: `That's ${STAND_WOOD} wood! Stand back, I know just what to do.`, mood: 'happy', name: 'Puul', end: 'handin' },
   open: { say: "Puul's stand is open! When the trade caravans start coming by, I'll handle all your deals.", mood: 'happy', name: 'Puul' },
+};
+
+// ---------- The town ----------
+// Mira runs the critter store with three little Shroomie helpers. She's "???" until she says her
+// name. The store isn't open yet: what it sells comes later.
+const shopkeeperVoice = require('../../assets/sounds/shopkeeper.wav');
+
+export const OWNER_SPEAKER: Speaker = {
+  key: 'shopkeeper',
+  name: '???',
+  voice: shopkeeperVoice,
+  loop: true,
+  portrait: (mood, talking) => ownerPortrait((mood as OwnerMood) ?? 'calm', talking),
+};
+export const HELPER_NAMES = ['Pip', 'Dot', 'Bun'];
+
+// 'hi' the first time you meet her, 'again' after that.
+export const OWNER_SCRIPT: Script = {
+  hi: { say: "Oh! Hello there! You must be new in town. Welcome!", mood: 'happy', next: 'name' },
+  name: { say: "I'm Mira, and this is my critter store. I look after all sorts of little creatures.", mood: 'calm', name: 'Mira', next: 'helpers' },
+  helpers: { say: 'Those three are my helpers, Pip, Dot and Bun. Say hi, everyone!', mood: 'happy', next: 'soon' },
+  soon: { say: "We're still settling in, so the shelves are a little bare. Do come back soon!", mood: 'calm', end: 'met' },
+  again: { say: "Welcome back! The little ones have been working so hard today.", mood: 'happy', name: 'Mira' },
+};
+
+export function helperSpeaker(look: number): Speaker {
+  return critterSpeaker(HELPER_NAMES[look] ?? 'Helper', look);
+}
+// Each helper squeaks something a little different.
+export const HELPER_SCRIPT: Script = {
+  hi0: { say: '...Weeiii! Weeiii-wi!' },
+  hi1: { say: '...Wi? ...Wiiiiii!' },
+  hi2: { say: '...WEEEI! Wi-wi-wi!' },
 };
