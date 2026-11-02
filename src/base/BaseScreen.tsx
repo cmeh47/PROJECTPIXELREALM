@@ -25,9 +25,10 @@ import {
   stumpPicture,
   swipePicture,
   toadOwPicture,
+  townSignPicture,
   treePicture,
 } from './art';
-import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, PUUL_POST, SIGN, SPAWN, STAND, STAND_BOX, TOAD_SPAWNS, TREES, inPond, type Pt } from './map';
+import { BUTCHER, EAST_GAP, HOUSE, HOUSE_BOX, HUT, HUT_BOX, MAP_H, MAP_W, PUUL_POST, SIGN, SOUTH_GAP, SPAWN, STAND, STAND_BOX, TOAD_SPAWNS, TOWN_SIGN, TREES, inPond, type Pt } from './map';
 import { Conversation, type Script, type Speaker } from './Conversation';
 import { QuestLog, type Quest } from './QuestLog';
 import { followY, newVCam } from './camera';
@@ -38,6 +39,7 @@ import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
 import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
 import { BUTCHER_SPEAKER, CRITTER_SCRIPT, MERCHANT_SCRIPT, PUUL_SPEAKER, STAND_WOOD, butcherScript, critterSpeaker, type MerchantStage } from './npcs';
 import { CoinCounter, InventorySheet, MEAT_PRICE, PackButton, roomFor, type Carry } from './Inventory';
+import { TownScreen } from './TownScreen';
 import { WoodsScreen } from './WoodsScreen';
 import { BakedImage, WindLayer } from './WindLayer';
 import { Bubble, FlashOverlay, Icon, LeafWipe, Mover, Static, SwirlOverlay } from './pieces';
@@ -53,7 +55,7 @@ const GRACE_MS = 2500; // after fleeing or losing, Shroomies ignore you for a mo
 const MAX_VISITORS = 4;
 const HUT_WOOD = 10; // the butcher's quest
 const BUILD_MS = 10 * 60_000; // he rebuilds his shack in 10 real minutes
-const WIPE_MS = 6 * 83; // the leaf wipe between the base and the Boar Woods: 6 ticks
+const WIPE_MS = 6 * 83; // the leaf wipe between the base and the Boar Woods or the town: 6 ticks
 const BOAR_RESPAWN_MS = 2 * 60_000;
 
 const TOAD_NAMES = ['Mossback Shroomie', 'Lilac Shroomie', 'Gilded Shroomie', 'Mossback Shroomie'];
@@ -140,6 +142,9 @@ export function BaseScreen({ player }: { player: Hero }) {
   const [groundMeat, setGroundMeat] = useState(0);
   const [boarsBackAt, setBoarsBackAt] = useState<(number | null)[]>([null, null, null]);
   const [woods, setWoods] = useState(false);
+  // The town south of the base, and whether you've met Mira at the critter store yet.
+  const [town, setTown] = useState(false);
+  const [metOwner, setMetOwner] = useState(false);
   const [pack, setPack] = useState(false);
   const [packBump, setPackBump] = useState(0);
   const [packFull, setPackFull] = useState(0);
@@ -152,7 +157,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   const [battle, setBattle] = useState<{ foe: Foe; key: number } | null>(null);
   // While a battle, the woods or the pack covers the base, the base's game loop rests.
   const coveredRef = useRef(false);
-  coveredRef.current = phase === 'battle' || woods || pack;
+  coveredRef.current = phase === 'battle' || woods || town || pack;
   const [banner, setBanner] = useState<string | null>(null);
   const [talk, setTalk] = useState<Talk | null>(null);
   // Puul the merchant: lost in the Boar Woods until you save him (see npcs.ts MerchantStage).
@@ -219,8 +224,10 @@ export function BaseScreen({ player }: { player: Hero }) {
   // ---------- Collision ----------
   const blocked = useCallback((x: number, y: number) => {
     const gap = y > EAST_GAP.walkY0 && y < EAST_GAP.walkY1 && x < MAP_W - 1;
-    if (x < 14 || (x > MAP_W - 14 && !gap) || y < 46 || y > MAP_H - 10) return true;
+    const southGap = x > SOUTH_GAP.walkX0 && x < SOUTH_GAP.walkX1 && y < MAP_H - 1;
+    if (x < 14 || (x > MAP_W - 14 && !gap) || y < 46 || (y > MAP_H - 10 && !southGap)) return true;
     if (Math.abs(x - SIGN.x) < 4 && y > SIGN.y - 3 && y < SIGN.y + 2) return true;
+    if (Math.abs(x - TOWN_SIGN.x) < 4 && y > TOWN_SIGN.y - 3 && y < TOWN_SIGN.y + 2) return true;
     if (x > HOUSE_BOX.x - 3 && x < HOUSE_BOX.x + HOUSE_BOX.w + 3 && y > HOUSE_BOX.y && y < HOUSE_BOX.y + HOUSE_BOX.h + 2) return true;
     if (inPond({ x, y }, 3)) return true;
     if (x > HUT_BOX.x && x < HUT_BOX.x + HUT_BOX.w && y > HUT_BOX.y && y < HUT_BOX.y + HUT_BOX.h) return true;
@@ -451,23 +458,31 @@ export function BaseScreen({ player }: { player: Hero }) {
     }
   };
 
-  // ---------- The Boar Woods ----------
-  // A band of leaves blows across; the scene swaps under it.
-  const travel = async (toWoods: boolean) => {
+  // ---------- The Boar Woods and the town ----------
+  // A band of leaves blows across; the scene swaps under it. Coming home, you're back on the base
+  // just inside the gap you left by, facing home.
+  const travel = async (to: 'woods' | 'town' | 'base') => {
     if (wipe.value > 0) return;
     goal.current = { to: null, holding: false, chop: null, downAt: 0 };
     finger.current = null;
     setWiping(true);
     wipe.value = withTiming(1, { duration: WIPE_MS, easing: Easing.linear });
     await wait(WIPE_MS / 2);
-    setWoods(toWoods);
-    if (!toWoods && merchantRef.current === 'escort') setTimeout(arriveHome, WIPE_MS / 2);
-    if (!toWoods) {
-      // Back on the base, just inside the gap, facing home.
+    const from = woodsRef.current ? 'woods' : townRef.current ? 'town' : 'base';
+    setWoods(to === 'woods');
+    setTown(to === 'town');
+    if (to === 'base' && from === 'woods' && merchantRef.current === 'escort') setTimeout(arriveHome, WIPE_MS / 2);
+    if (to === 'base') {
       const h = hero.current;
-      h.x = MAP_W - 22;
-      h.y = (EAST_GAP.walkY0 + EAST_GAP.walkY1) / 2;
-      h.dir = 'left';
+      if (from === 'town') {
+        h.x = (SOUTH_GAP.walkX0 + SOUTH_GAP.walkX1) / 2;
+        h.y = MAP_H - 46;
+        h.dir = 'up';
+      } else {
+        h.x = MAP_W - 22;
+        h.y = (EAST_GAP.walkY0 + EAST_GAP.walkY1) / 2;
+        h.dir = 'left';
+      }
       h.frame = 0;
       heroX.value = h.x;
       heroY.value = h.y;
@@ -574,13 +589,15 @@ export function BaseScreen({ player }: { player: Hero }) {
 
   const woodsRef = useRef(woods);
   woodsRef.current = woods;
+  const townRef = useRef(town);
+  townRef.current = town;
   const travelRef = useRef(travel);
   travelRef.current = travel;
   // 1 while the leaf wipe runs, so the gap doesn't trigger twice.
   const wipeRef = useRef(0);
   useEffect(() => {
-    if (!woods) wipeRef.current = 0;
-  }, [woods]);
+    if (!woods && !town) wipeRef.current = 0;
+  }, [woods, town]);
 
   // ---------- The game loop ----------
   useEffect(() => {
@@ -708,7 +725,14 @@ export function BaseScreen({ player }: { player: Hero }) {
             g.to = null;
             g.holding = false;
             wipeRef.current = 1;
-            travelRef.current(true);
+            travelRef.current('woods');
+          }
+          // Down through the gap in the south tree ring: the town.
+          if (h.y > SOUTH_GAP.y && h.x > SOUTH_GAP.walkX0 && h.x < SOUTH_GAP.walkX1 && wipeRef.current === 0) {
+            g.to = null;
+            g.holding = false;
+            wipeRef.current = 1;
+            travelRef.current('town');
           }
           if (moving) {
             h.walkMs += dt;
@@ -975,6 +999,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   const hutPic = !shack ? hutPicture(s) : shackPicture(building ? 1 - buildLeft / BUILD_MS : 1, s);
   items.push({ y: HUT_BOX.y + HUT_BOX.h - 4, key: 'hut', node: <Static key="hut" pic={hutPic} x={HUT.x} y={shack ? HUT.y - 8 : HUT.y} s={s} /> });
   items.push({ y: SIGN.y, key: 'sign', node: <Static key="sign" pic={signPicture(s)} x={SIGN.x - 9} y={SIGN.y - 19} s={s} /> });
+  items.push({ y: TOWN_SIGN.y, key: 'town-sign', node: <Static key="town-sign" pic={townSignPicture(s)} x={TOWN_SIGN.x - 9} y={TOWN_SIGN.y - 21} s={s} /> });
   // Puul's plot (stakes and a sign) once he's moved in, and the stand once it's built.
   if (merchant === 'home' || merchant === 'stand' || merchant === 'open') {
     items.push({ y: STAND.y + 34, key: 'stand', node: <Static key="stand" pic={standPicture(merchant === 'open', s)} x={STAND.x} y={STAND.y} s={s} /> });
@@ -1097,7 +1122,7 @@ export function BaseScreen({ player }: { player: Hero }) {
             </View>
             <View style={{ gap: 6, alignItems: 'flex-end' }}>
               {/* The quest log lives up in this corner, away from where you walk. The woods show their own. */}
-              {quests.length && !woods ? <QuestLog quests={quests} /> : null}
+              {quests.length && !woods && !town ? <QuestLog quests={quests} /> : null}
               {wild === 0 ? (
                 <Pressable accessibilityRole="button" accessibilityLabel="Reset base" onPress={resetBase} hitSlop={8}>
                   <Chip label="RESET" fill={colors.vellum} />
@@ -1151,10 +1176,27 @@ export function BaseScreen({ player }: { player: Hero }) {
               onOpenPack={() => setPack(true)}
               onHunt={onHunt}
               onPickUp={onPickUp}
-              onLeave={() => travel(false)}
+              onLeave={() => travel('base')}
               covered={pack}
               merchant={merchant}
               onRescued={onRescued}
+              quests={quests}
+            />
+          </View>
+        ) : null}
+        {town ? (
+          <View style={StyleSheet.absoluteFill}>
+            <TownScreen
+              player={player}
+              coins={coins}
+              itemCount={wood + meat}
+              packBump={packBump}
+              packFull={packFull}
+              onOpenPack={() => setPack(true)}
+              onLeave={() => travel('base')}
+              covered={pack || wiping}
+              metOwner={metOwner}
+              onMeetOwner={() => setMetOwner(true)}
               quests={quests}
             />
           </View>

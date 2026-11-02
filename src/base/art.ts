@@ -5,6 +5,7 @@ import { bagGrid, boarOverworld, coinGrid, meatGrid, signGrid } from '../sprites
 import { Grid, PAL, star } from '../sprites/pixel';
 import { heroOw, type HeroLook } from '../sprites/hero';
 import { merchantOverworld, standGrid } from '../sprites/merchant';
+import { buildingGrid, helperOverworld, ownerOverworld, propGrid, smokeGrid, townSignGrid, type BuildingKind, type PropKind } from '../sprites/town';
 import { gridPicture } from '../sprites/render';
 import { staticGround, windFrames, type Px } from './ground';
 import { MAP_H, MAP_W } from './map';
@@ -39,6 +40,14 @@ export const merchantOwPicture = (dir: Dir, frame: number, scared: boolean, s: n
   gridPicture(`ow-merchant-${dir}-${frame}-${scared ? 1 : 0}`, () => merchantOverworld(dir, frame, scared), s);
 export const standPicture = (done: boolean, s: number) => gridPicture(`ow-stand-${done ? 1 : 0}`, () => standGrid(done), s);
 export const signPicture = (s: number) => gridPicture('ow-sign', () => signGrid(), s);
+// The town (sprites/town.ts).
+export const townSignPicture = (s: number) => gridPicture('ow-town-sign', () => townSignGrid(), s);
+export const buildingPicture = (kind: BuildingKind, s: number) => gridPicture(`ow-building-${kind}`, () => buildingGrid(kind), s);
+export const propPicture = (kind: PropKind, s: number) => gridPicture(`ow-prop-${kind}`, () => propGrid(kind), s);
+export const ownerOwPicture = (dir: Dir, frame: number, s: number) => gridPicture(`ow-owner-${dir}-${frame}`, () => ownerOverworld(dir, frame), s);
+export const helperOwPicture = (hop: number, look: number, flip: boolean, s: number) =>
+  gridPicture(`ow-helper-${hop}-${look}-${flip ? 1 : 0}`, () => helperOverworld(hop, look, flip), s);
+export const smokePicture = (frame: number, s: number) => gridPicture(`ow-smoke-${frame}`, () => smokeGrid(frame), s);
 // Dizzy stars circling a boar's head after it charges past you, 14 x 6, in three turns.
 export const dizzyPicture = (frame: number, s: number) =>
   gridPicture(
