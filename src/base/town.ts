@@ -27,6 +27,8 @@ export const STREETS: Rect[] = [
   { x: 40, y: 372, w: 336, h: 24 },
   { x: 86, y: 396, w: 15, h: 110 },
   { x: 24, y: 492, w: 77, h: 14 },
+  // The woodyard round the bar's right side, where Barley keeps his logs.
+  { x: 336, y: 80, w: 60, h: 72 },
 ];
 export const onStreet = (p: Pt, pad = 0) => STREETS.some((r) => inRect(p, r, pad));
 
@@ -63,6 +65,17 @@ export const HELPER_HOMES: Pt[] = [
   { x: STORE.x + 30, y: STORE.y + 80 },
   { x: STORE.x + 70, y: STORE.y + 82 },
 ];
+
+// Barley's woodyard: the log pile against the back corner, the chopping block, and the stack of split
+// firewood that grows as you work. Feet centres. You stand left of the block to split a log.
+export const LOG_PILE: Pt = { x: 376, y: 98 };
+export const CHOP_BLOCK: Pt = { x: 358, y: 126 };
+export const FIREWOOD_STACK: Pt = { x: 384, y: 134 };
+export const CHOP_SPOT: Pt = { x: CHOP_BLOCK.x - 12, y: CHOP_BLOCK.y + 1 };
+export const yardBlocked = (x: number, y: number) =>
+  (Math.abs(x - LOG_PILE.x) < 16 && y > LOG_PILE.y - 10 && y < LOG_PILE.y + 3) ||
+  (Math.abs(x - CHOP_BLOCK.x) < 6 && y > CHOP_BLOCK.y - 5 && y < CHOP_BLOCK.y + 3) ||
+  (Math.abs(x - FIREWOOD_STACK.x) < 11 && y > FIREWOOD_STACK.y - 7 && y < FIREWOOD_STACK.y + 3);
 
 export type Prop = { kind: PropKind; x: number; y: number; id: number }; // x, y = foot centre
 export const PROPS: Prop[] = (
@@ -206,6 +219,14 @@ export function townGround(): Px[] {
       const fc = col === 'R' ? colors.rose : col === 'B' ? colors.butter : col === 'H' ? colors.white : colors.sky;
       out.push({ x, y: y + 1, c: colors.leafDeep }, { x: x - 1, y, c: fc }, { x: x + 1, y, c: fc }, { x, y: y - 1, c: fc }, { x, y, c: colors.xpGold });
     }
+  }
+  // Wood chips scattered round the chopping block.
+  for (let i = 0; i < 40; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 4 + rand() * 13;
+    const x = Math.round(CHOP_BLOCK.x + Math.cos(a) * r);
+    const y = Math.round(CHOP_BLOCK.y + Math.sin(a) * r * 0.5);
+    out.push({ x, y, w: rand() < 0.5 ? 2 : 1, h: 1, c: rand() < 0.5 ? colors.barkPale : colors.bark });
   }
   // The witch's yard: trampled earth with a ring of little purple toadstools.
   for (let k = 0; k < 9; k++) {

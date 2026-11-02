@@ -1,7 +1,7 @@
 import { Canvas, Group, Oval, Picture } from '@shopify/react-native-skia';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
-import { useDerivedValue, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PopText, type Pop } from '../combat/Pops';
@@ -11,16 +11,37 @@ import { TREE_H, TREE_W, type Dir } from '../sprites/overworld';
 import { BUILDING_SIZE, HELPER_OW_H, HELPER_OW_W, PROP_SIZE, SMOKE_FRAMES } from '../sprites/town';
 import { colors } from '../theme';
 import { Framed, haptic, styles as t } from '../ui/pixel';
-import { bake, buildingPicture, helperOwPicture, heroOwPicture, ownerOwPicture, propPicture, smokePicture, tapRingPicture, treePicture, type Baked } from './art';
+import { bake, blockPicture, buildingPicture, firewoodStackPicture, helperOwPicture, heroOwPicture, logPilePicture, ownerOwPicture, propPicture, smokePicture, tapRingPicture, treePicture, type Baked } from './art';
+import { BarScreen } from './BarScreen';
 import { followY, newVCam } from './camera';
 import { Conversation, type Script, type Speaker } from './Conversation';
 import { CoinCounter, PackButton } from './Inventory';
 import type { Pt } from './map';
-import { HELPER_SCRIPT, OWNER_SCRIPT, OWNER_SPEAKER, helperSpeaker } from './npcs';
-import { Mover, Static } from './pieces';
+import { FIREWOOD_NEED, HELPER_SCRIPT, OWNER_SCRIPT, OWNER_SPEAKER, helperSpeaker, type BartenderStage } from './npcs';
+import { Mover, Static, Swipe } from './pieces';
 import { QuestLog, type Quest } from './QuestLog';
+import { route } from './route';
 import { BakedImage } from './WindLayer';
-import { BUILDINGS, HELPER_HOMES, NORTH_GAP, OWNER_POST, PROPS, TOWN_ENTRY, TOWN_H, TOWN_TREES, TOWN_W, WITCH_SMOKE, propBox, townGround, type Building } from './town';
+import {
+  BUILDINGS,
+  CHOP_BLOCK,
+  CHOP_SPOT,
+  FIREWOOD_STACK,
+  HELPER_HOMES,
+  LOG_PILE,
+  NORTH_GAP,
+  OWNER_POST,
+  PROPS,
+  TOWN_ENTRY,
+  TOWN_H,
+  TOWN_TREES,
+  TOWN_W,
+  WITCH_SMOKE,
+  propBox,
+  townGround,
+  yardBlocked,
+  type Building,
+} from './town';
 
 // ---------- Tuning ----------
 const HERO_SPEED = 64; // art px per second, as on the base
@@ -28,12 +49,18 @@ const STEP_MS = 1000 / 8;
 const TALK_RANGE = 20; // close enough to chat
 const LOOK_RANGE = 48; // Mira turns to watch you within this
 const HOP_RANGE = 14; // helpers potter about this close to home
+const CHOP_MS = 420; // one swing of the sword at the log on the block, as at the base's trees
+const SWINGS_PER_LOG = 3;
+const SPLIT_SHOW_MS = 450; // the two halves lie on the block this long before you clear them
+const FADE_MS = 200; // in and out of the bar
+const BAR = 1; // BUILDINGS index
 
 type Phase = 'roam' | 'talk';
 type Helper = { id: number; home: Pt; x: number; y: number; flip: boolean; hop: 0 | 1 | 2; t: number; from: Pt; to: Pt; mode: 'idle' | 'squash' | 'air' };
 type Talk = { speaker: Speaker; script: Script; start: string; key: number };
 // What a walk is headed for: a chat with Mira or a helper, or a building's door.
-type Aim = { kind: 'owner' } | { kind: 'helper'; id: number } | { kind: 'door'; b: number };
+type Aim = { kind: 'owner' } | { kind: 'helper'; id: number } | { kind: 'door'; b: number } | { kind: 'block' };
+type BlockState = 'empty' | 'log' | 'split';
 
 const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
 const facing = (dx: number, dy: number): Dir => (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up');
@@ -60,12 +87,17 @@ export type TownProps = {
   metOwner: boolean;
   onMeetOwner: () => void;
   quests: Quest[];
+  // Barley's firewood job (the bar, and the woodyard round its right side).
+  bartender: BartenderStage;
+  firewood: number;
+  metBarley: boolean;
+  onBartender: (step: 'met' | 'accept' | 'split' | 'handin') => void;
 };
 
 // The town. Same controls as the base: hold to walk, tap to walk somewhere. Tap Mira or one of her
 // helpers to chat, or a building to walk to its door. Walk north out of the gap to go home.
 export function TownScreen(props: TownProps) {
-  const { player, coins, itemCount, packBump, packFull, onOpenPack, onLeave, covered, metOwner, onMeetOwner, quests } = props;
+  const { player, coins, itemCount, packBump, packFull, onOpenPack, onLeave, covered, metOwner, onMeetOwner, quests, bartender, firewood, metBarley, onBartender } = props;
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
@@ -90,17 +122,28 @@ export function TownScreen(props: TownProps) {
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Inside the bar: the town rests under it. The ink fade covers the swap either way.
+  const [inside, setInside] = useState(false);
+  const [fading, setFading] = useState(false);
+  const fade = useSharedValue(0);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
   const coveredRef = useRef(false);
-  coveredRef.current = covered;
+  coveredRef.current = covered || inside || fading;
+  const jobRef = useRef({ bartender, firewood });
+  jobRef.current = { bartender, firewood };
   const metRef = useRef(metOwner);
   metRef.current = metOwner;
 
   const hero = useRef({ x: TOWN_ENTRY.x, y: TOWN_ENTRY.y, dir: 'down' as Dir, frame: 0, walkMs: 0 });
-  const goal = useRef<{ to: Pt | null; holding: boolean; aim: Aim | null; downAt: number }>({ to: null, holding: false, aim: null, downAt: 0 });
+  // path: the rest of a tapped route round buildings and trees (to is its next waypoint).
+  const goal = useRef<{ to: Pt | null; holding: boolean; aim: Aim | null; downAt: number; path?: Pt[] }>({ to: null, holding: false, aim: null, downAt: 0 });
   const finger = useRef<Pt | null>(null);
   const helpers = useRef<Helper[]>(newHelpers());
   const owner = useRef<{ dir: Dir }>({ dir: 'down' });
   const tapAt = useRef<{ x: number; y: number; ms: number } | null>(null);
+  // Splitting a log on the chopping block: swings so far, and what's on the block.
+  const chop = useRef<{ ms: number; swings: number } | null>(null);
+  const block = useRef<{ state: BlockState; ms: number }>({ state: 'empty', ms: 0 });
 
   const heroX = useSharedValue(TOWN_ENTRY.x);
   const heroY = useSharedValue(TOWN_ENTRY.y);
@@ -126,6 +169,7 @@ export function TownScreen(props: TownProps) {
     if (y < 44 && !(inGap(x) && y > 1)) return true;
     for (const b of BUILDINGS) if (inBox(x, y, b.box)) return true;
     for (const p of PROPS) if (inBox(x, y, propBox(p))) return true;
+    if (yardBlocked(x, y)) return true;
     for (const tr of TOWN_TREES) if (Math.abs(x - tr.x) < 6 && y > tr.y - 5 && y < tr.y + 3) return true;
     if (Math.abs(x - OWNER_POST.x) < 6 && y > OWNER_POST.y - 5 && y < OWNER_POST.y + 3) return true;
     return false;
@@ -158,7 +202,47 @@ export function TownScreen(props: TownProps) {
     setTalk({ speaker: helperSpeaker(id), script: HELPER_SCRIPT, start: `hi${id}`, key: Date.now() });
     force();
   };
+  // In and out of the bar, through a quick fade to ink.
+  const goInside = (into: boolean) => {
+    if (coveredRef.current && into) return;
+    coveredRef.current = true;
+    goal.current = { to: null, holding: false, aim: null, downAt: 0 };
+    chop.current = null;
+    setHint(null);
+    setFading(true);
+    const ms = reduceMotion ? 0 : FADE_MS;
+    fade.value = withTiming(1, { duration: ms, easing: Easing.in(Easing.quad) });
+    setTimeout(() => {
+      setInside(into);
+      if (!into) {
+        // Back on the step outside the bar, facing the street.
+        const door = BUILDINGS[BAR].door;
+        Object.assign(hero.current, { x: door.x, y: door.y, dir: 'down', frame: 0, walkMs: 0 });
+      }
+      fade.value = withTiming(0, { duration: ms + 60, easing: Easing.out(Easing.quad) });
+      setTimeout(() => setFading(false), ms + 60);
+    }, ms + 40);
+  };
+  // Start splitting the next log: set it on the block and swing.
+  const startSplit = () => {
+    const h = hero.current;
+    h.dir = 'right';
+    h.frame = 0;
+    goal.current = { to: null, holding: false, aim: null, downAt: 0 };
+    block.current = { state: 'log', ms: 0 };
+    chop.current = { ms: CHOP_MS * 0.6, swings: 0 };
+    force();
+  };
+  // Tapped the woodyard: split a log if Barley's asked you to, otherwise say what it is.
+  const yardHint = () => {
+    const { bartender: b, firewood: f } = jobRef.current;
+    if (b === 'new') return "A chopping block and a pile of logs. They must belong to the bar.";
+    if (b === 'done') return "Barley's firewood is all split. You can hear the fire crackling inside.";
+    if (f >= FIREWOOD_NEED) return `That's all ${FIREWOOD_NEED} logs split! Go tell Barley in the bar.`;
+    return null;
+  };
   const knock = (b: Building) => {
+    if (b.kind === 'bar') return goInside(true);
     faceHero({ x: b.door.x, y: b.door.y - 10 });
     haptic('light');
     pop(b.name.toUpperCase(), colors.butter, b.door.x, b.door.y - 30);
@@ -178,10 +262,13 @@ export function TownScreen(props: TownProps) {
   const arrive = (aim: Aim) => {
     if (aim.kind === 'owner') talkToOwner();
     else if (aim.kind === 'helper') talkToHelper(aim.id);
+    else if (aim.kind === 'block') startSplit();
     else knock(BUILDINGS[aim.b]);
   };
   const arriveRef = useRef(arrive);
   arriveRef.current = arrive;
+  const onBartenderRef = useRef(onBartender);
+  onBartenderRef.current = onBartender;
 
   // ---------- The game loop ----------
   useEffect(() => {
@@ -213,8 +300,39 @@ export function TownScreen(props: TownProps) {
         }
       }
 
-      if (phaseRef.current === 'roam') {
+      // The halves of a split log lie on the block a moment.
+      const bl = block.current;
+      if (bl.state === 'split') {
+        bl.ms -= dt;
+        if (bl.ms <= 0) {
+          bl.state = 'empty';
+          repaint = true;
+        }
+      }
+      const c = chop.current;
+      if (phaseRef.current === 'roam' && c) {
+        c.ms += dt;
+        if (c.ms >= CHOP_MS) {
+          c.ms -= CHOP_MS;
+          c.swings += 1;
+          haptic('light');
+          if (c.swings >= SWINGS_PER_LOG) {
+            chop.current = null;
+            block.current = { state: 'split', ms: SPLIT_SHOW_MS };
+            const n = Math.min(FIREWOOD_NEED, jobRef.current.firewood + 1);
+            onBartenderRef.current('split');
+            haptic('success');
+            pop('+1', colors.butter, CHOP_BLOCK.x, CHOP_BLOCK.y - 22, { sub: 'FIREWOOD' });
+            setHint(n >= FIREWOOD_NEED ? `That's all ${FIREWOOD_NEED} logs split! Go tell Barley in the bar.` : `${n} of ${FIREWOOD_NEED} split. Tap the block for the next log.`);
+          }
+          repaint = true;
+        }
+      } else if (phaseRef.current === 'roam') {
         if (g.holding && finger.current) g.to = { x: camX.value + finger.current.x, y: camY.value + finger.current.y };
+        if (g.to && g.path && g.path.length > 1 && Math.hypot(g.to.x - h.x, g.to.y - h.y) < 2) {
+          g.path.shift();
+          g.to = g.path[0];
+        }
         let moving = false;
         if (g.to) {
           const dx = g.to.x - h.x;
@@ -228,10 +346,11 @@ export function TownScreen(props: TownProps) {
               h.x = nx;
               h.y = ny;
               moving = true;
-            } else if (!blocked(nx, h.y)) {
+            } else if (Math.abs(nx - h.x) > 0.01 && !blocked(nx, h.y)) {
+              // Slide along whatever's in the way (but going nowhere isn't walking).
               h.x = nx;
               moving = true;
-            } else if (!blocked(h.x, ny)) {
+            } else if (Math.abs(ny - h.y) > 0.01 && !blocked(h.x, ny)) {
               h.y = ny;
               moving = true;
             }
@@ -242,13 +361,13 @@ export function TownScreen(props: TownProps) {
             }
           }
           // Arrived where the tap was headed?
-          if (g.aim && (dist < 3 || !moving)) {
+          if (g.aim && (dist < 3 || !moving) && !(g.path && g.path.length > 1)) {
             const aim = g.aim;
-            const target = aim.kind === 'owner' ? OWNER_POST : aim.kind === 'helper' ? helpers.current[aim.id] : BUILDINGS[aim.b].door;
+            const target = aim.kind === 'owner' ? OWNER_POST : aim.kind === 'helper' ? helpers.current[aim.id] : aim.kind === 'block' ? CHOP_SPOT : BUILDINGS[aim.b].door;
             g.aim = null;
             g.to = null;
             moving = false;
-            if (Math.hypot(target.x - h.x, target.y - h.y) < (aim.kind === 'door' ? 14 : TALK_RANGE + 4)) arriveRef.current(aim);
+            if (Math.hypot(target.x - h.x, target.y - h.y) < (aim.kind === 'door' ? 14 : aim.kind === 'block' ? 6 : TALK_RANGE + 4)) arriveRef.current(aim);
           } else if (!moving && !g.holding) g.to = null;
         }
         if (moving) {
@@ -263,6 +382,9 @@ export function TownScreen(props: TownProps) {
           h.walkMs = 0;
           repaint = true;
         }
+        // Walking up into the bar's door goes inside, the same as tapping it.
+        const bd = BUILDINGS[BAR].door;
+        if (moving && h.dir === 'up' && Math.abs(h.x - bd.x) < 8 && h.y < bd.y - 2 && h.y > bd.y - 9) arriveRef.current({ kind: 'door', b: BAR });
         // Out through the north gap: home.
         if (h.y < 30 && inGap(h.x) && !left) {
           left = true;
@@ -348,7 +470,8 @@ export function TownScreen(props: TownProps) {
     if (!to) return false;
     const h = hero.current;
     tapAt.current = { x: to.x, y: to.y, ms: 600 };
-    goal.current = { to, holding: false, aim, downAt };
+    const path = route(h, to, blocked, TOWN_W, TOWN_H) ?? [to];
+    goal.current = { to: path[0], holding: false, aim, downAt, path };
     if (Math.hypot(to.x - h.x, to.y - h.y) < 3) {
       goal.current.to = null;
       goal.current.aim = null;
@@ -363,6 +486,27 @@ export function TownScreen(props: TownProps) {
     const p = toWorld(e);
     const h = hero.current;
     const downAt = Date.now();
+    // Any tap stops a swing mid-log; the log goes back on the pile.
+    if (chop.current) {
+      chop.current = null;
+      block.current = { state: 'empty', ms: 0 };
+      force();
+    }
+    // The woodyard: the block, the log pile or the firewood stack.
+    const onYard =
+      (Math.abs(p.x - CHOP_BLOCK.x) < 10 && p.y > CHOP_BLOCK.y - 18 && p.y < CHOP_BLOCK.y + 4) ||
+      (Math.abs(p.x - LOG_PILE.x) < 16 && p.y > LOG_PILE.y - 16 && p.y < LOG_PILE.y + 3) ||
+      (Math.abs(p.x - FIREWOOD_STACK.x) < 12 && p.y > FIREWOOD_STACK.y - 14 && p.y < FIREWOOD_STACK.y + 3);
+    if (onYard) {
+      const why = yardHint();
+      if (why) {
+        haptic('light');
+        setHint(why);
+        return;
+      }
+      if (Math.hypot(CHOP_SPOT.x - h.x, CHOP_SPOT.y - h.y) < 6) return startSplit();
+      if (walkTo(CHOP_SPOT, { kind: 'block' }, downAt)) return;
+    }
     // Mira?
     if (Math.abs(p.x - OWNER_POST.x) < 10 && p.y > OWNER_POST.y - 22 && p.y < OWNER_POST.y + 4) {
       if (Math.hypot(OWNER_POST.x - h.x, OWNER_POST.y - h.y) < TALK_RANGE) return talkToOwner();
@@ -414,6 +558,13 @@ export function TownScreen(props: TownProps) {
     const { w, h: ph } = PROP_SIZE[p.kind];
     items.push({ y: p.y, key: `p${p.id}`, node: <Static key={`p${p.id}`} pic={propPicture(p.kind, s)} x={p.x - Math.floor(w / 2)} y={p.y - ph + 2} s={s} /> });
   }
+  // The woodyard: logs left on the pile, the block, and the firewood you've split so far.
+  const piled = bartender === 'done' ? 2 : FIREWOOD_NEED - Math.min(firewood, FIREWOOD_NEED);
+  items.push({ y: LOG_PILE.y, key: 'logpile', node: <Static key="logpile" pic={logPilePicture(piled, s)} x={LOG_PILE.x - 15} y={LOG_PILE.y - 14} s={s} /> });
+  items.push({ y: CHOP_BLOCK.y, key: 'block', node: <Static key="block" pic={blockPicture(block.current.state, s)} x={CHOP_BLOCK.x - 8} y={CHOP_BLOCK.y - 16} s={s} /> });
+  if (bartender === 'quest' && firewood > 0) {
+    items.push({ y: FIREWOOD_STACK.y, key: 'stack', node: <Static key="stack" pic={firewoodStackPicture(Math.min(firewood, FIREWOOD_NEED), s)} x={FIREWOOD_STACK.x - 11} y={FIREWOOD_STACK.y - 12} s={s} /> });
+  }
   items.push({ y: OWNER_POST.y, key: 'owner', node: <Owner key="owner" dir={owner.current.dir} beat={breath} s={s} /> });
   helpers.current.forEach((hp, i) => {
     items.push({
@@ -422,7 +573,8 @@ export function TownScreen(props: TownProps) {
       node: <Mover key={`h${hp.id}`} pic={helperOwPicture(hp.hop, hp.id, hp.flip, s)} x={hx[i]} y={hy[i]} w={HELPER_OW_W} h={HELPER_OW_H} s={s} shadow={hp.hop !== 2} />,
     });
   });
-  items.push({ y: h.y, key: 'hero', node: <Mover key="hero" pic={heroOwPicture(h.dir, h.frame, player.look, s)} x={heroX} y={heroY} w={HERO_OW_W} h={HERO_OW_H} s={s} shadow /> });
+  const swing = chop.current;
+  items.push({ y: h.y, key: 'hero', node: <Mover key="hero" pic={heroOwPicture(h.dir, swing ? (swing.ms < CHOP_MS / 2 ? 2 : 0) : h.frame, player.look, s)} x={heroX} y={heroY} w={HERO_OW_W} h={HERO_OW_H} s={s} shadow /> });
   items.sort((a, b) => a.y - b.y);
 
   const ground = townGroundImage();
@@ -451,6 +603,7 @@ export function TownScreen(props: TownProps) {
               {ground ? <BakedImage baked={ground} s={s} /> : null}
               {tap ? <Static pic={tapRingPicture(s)} x={tap.x - 10} y={tap.y - 5} s={s} /> : null}
               {items.map((it) => it.node)}
+              {swing ? <Swipe dir={h.dir} hx={h.x} hy={h.y} s={s} /> : null}
               <Smoke beat={smoke} s={s} />
             </Group>
           </Canvas>
@@ -484,6 +637,25 @@ export function TownScreen(props: TownProps) {
         </View>
       ) : null}
       {talk ? <Conversation key={talk.key} speaker={talk.speaker} script={talk.script} start={talk.start} bottom={insets.bottom + 14} onEnd={endTalk} /> : null}
+
+      {inside ? (
+        <BarScreen
+          player={player}
+          coins={coins}
+          itemCount={itemCount}
+          packBump={packBump}
+          packFull={packFull}
+          onOpenPack={onOpenPack}
+          covered={covered || fading}
+          quests={quests}
+          bartender={bartender}
+          firewood={firewood}
+          metBarley={metBarley}
+          onBartender={onBartender}
+          onLeave={() => goInside(false)}
+        />
+      ) : null}
+      {fading ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, st.fade, fadeStyle]} /> : null}
     </View>
   );
 }
@@ -517,6 +689,7 @@ function Smoke({ beat, s }: { beat: SharedValue<number>; s: number }) {
 
 const st = StyleSheet.create({
   mapBox: { flex: 1, overflow: 'hidden', backgroundColor: colors.mint },
+  fade: { backgroundColor: colors.ink },
   hud: { position: 'absolute', left: 12, right: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   hudPanel: { paddingHorizontal: 10, paddingVertical: 6, gap: 4 },
   toast: { position: 'absolute', left: 12, right: 12 },

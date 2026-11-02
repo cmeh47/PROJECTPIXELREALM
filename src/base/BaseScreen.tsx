@@ -23,7 +23,6 @@ import {
   signPicture,
   standPicture,
   stumpPicture,
-  swipePicture,
   toadOwPicture,
   townSignPicture,
   treePicture,
@@ -37,12 +36,12 @@ import { MERCHANT_OW_H, MERCHANT_OW_W } from '../sprites/merchant';
 import type { Hero } from '../net/useHero';
 import { HERO_OW_H, HERO_OW_W } from '../sprites/hero';
 import { useBaseSave, type SavedBase, type SaveStatus } from '../net/useBaseSave';
-import { BUTCHER_SPEAKER, CRITTER_SCRIPT, MERCHANT_SCRIPT, PUUL_SPEAKER, STAND_WOOD, butcherScript, critterSpeaker, type MerchantStage } from './npcs';
+import { BUTCHER_SPEAKER, CRITTER_SCRIPT, FIREWOOD_NEED, FIREWOOD_REWARD, MERCHANT_SCRIPT, PUUL_SPEAKER, STAND_WOOD, butcherScript, critterSpeaker, type BartenderStage, type MerchantStage } from './npcs';
 import { CoinCounter, InventorySheet, MEAT_PRICE, PackButton, roomFor, type Carry } from './Inventory';
 import { TownScreen } from './TownScreen';
 import { WoodsScreen } from './WoodsScreen';
 import { BakedImage, WindLayer } from './WindLayer';
-import { Bubble, FlashOverlay, Icon, LeafWipe, Mover, Static, SwirlOverlay } from './pieces';
+import { Bubble, FlashOverlay, Icon, LeafWipe, Mover, Static, Swipe, SwirlOverlay } from './pieces';
 
 // ---------- Tuning ----------
 const HERO_SPEED = 64; // art px per second
@@ -145,6 +144,10 @@ export function BaseScreen({ player }: { player: Hero }) {
   // The town south of the base, and whether you've met Mira at the critter store yet.
   const [town, setTown] = useState(false);
   const [metOwner, setMetOwner] = useState(false);
+  // Barley the bartender's firewood job, and whether he's introduced himself yet this session.
+  const [bartender, setBartender] = useState<BartenderStage>('new');
+  const [firewood, setFirewood] = useState(0);
+  const [metBarley, setMetBarley] = useState(false);
   const [pack, setPack] = useState(false);
   const [packBump, setPackBump] = useState(0);
   const [packFull, setPackFull] = useState(0);
@@ -581,11 +584,25 @@ export function BaseScreen({ player }: { player: Hero }) {
       if (b.merchant === 'escort') setTimeout(() => !woodsRef.current && arriveHome(), 400);
       else if (was === 'lost' || was === 'escort') Object.assign(puul.current, newFollower(PUUL_POST), { route: [] });
     }
+    if (b.bartender) setBartender(b.bartender);
+    if (b.firewood != null) setFirewood(b.firewood);
     force();
   };
   const { status: saveStatus, send: save } = useBaseSave(applySaved);
   const saveRef = useRef(save);
   saveRef.current = save;
+
+  // Barley's job, from the town: 'met' when he's said his name, then each step goes to the server.
+  const onBartender = (step: 'met' | 'accept' | 'split' | 'handin') => {
+    if (step === 'met') return setMetBarley(true);
+    if (step === 'accept') setBartender('quest');
+    else if (step === 'split') setFirewood((f) => Math.min(FIREWOOD_NEED, f + 1));
+    else {
+      setBartender('done');
+      setCoins((c) => c + FIREWOOD_REWARD);
+    }
+    save({ fn: 'bartender_step', step });
+  };
 
   const woodsRef = useRef(woods);
   woodsRef.current = woods;
@@ -1040,6 +1057,7 @@ export function BaseScreen({ player }: { player: Hero }) {
   if (stage === 'quest') quests.push({ id: 'hut', title: "Rebuild the butcher's hut", giver: 'butcher', item: 'wood', have: wood, need: HUT_WOOD, turnIn: 'Bring it to him' });
   if (merchant === 'escort') quests.push({ id: 'escort', title: 'Escort Puul home', giver: 'merchant', item: 'go', have: 0, need: 1, turnIn: 'Lead him out the west gap' });
   if (merchant === 'stand') quests.push({ id: 'stand', title: "Build Puul's stand", giver: 'merchant', item: 'wood', have: wood, need: STAND_WOOD, turnIn: 'Bring it to him' });
+  if (bartender === 'quest') quests.push({ id: 'firewood', title: 'Split firewood for Barley', giver: 'bartender', item: 'firewood', have: firewood, need: FIREWOOD_NEED, turnIn: 'Tell him in the bar' });
 
   const ground = groundImage();
   const worldT = useDerivedValue(() => [{ translateX: -camX.value * s }, { translateY: -camY.value * s }]);
@@ -1197,6 +1215,10 @@ export function BaseScreen({ player }: { player: Hero }) {
               covered={pack || wiping}
               metOwner={metOwner}
               onMeetOwner={() => setMetOwner(true)}
+              bartender={bartender}
+              firewood={firewood}
+              metBarley={metBarley}
+              onBartender={onBartender}
               quests={quests}
             />
           </View>
@@ -1231,15 +1253,6 @@ export function BaseScreen({ player }: { player: Hero }) {
 }
 
 // ---------- Drawing pieces ----------
-
-function Swipe({ dir, hx, hy, s }: { dir: Dir; hx: number; hy: number; s: number }) {
-  const off = dir === 'left' ? { x: -16, y: -16 } : dir === 'right' ? { x: 4, y: -16 } : dir === 'up' ? { x: -4, y: -30 } : { x: -4, y: -8 };
-  return (
-    <Group transform={[{ translateX: Math.round(hx + off.x) * s }, { translateY: Math.round(hy + off.y) * s }]}>
-      <Picture picture={swipePicture(dir === 'left', s)} />
-    </Group>
-  );
-}
 
 function Heart({ x, y, beat, s }: { x: SharedValue<number>; y: SharedValue<number>; beat: SharedValue<number>; s: number }) {
   const transform = useDerivedValue(() => [{ translateX: Math.round(x.value - 4) * s }, { translateY: Math.round(y.value - 26 - beat.value) * s }]);

@@ -7,6 +7,7 @@ import { heroOw, type HeroLook } from '../sprites/hero';
 import { merchantOverworld, standGrid } from '../sprites/merchant';
 import { buildingGrid, helperOverworld, ownerOverworld, propGrid, smokeGrid, townSignGrid, type BuildingKind, type PropKind } from '../sprites/town';
 import { gridPicture } from '../sprites/render';
+import { bartenderGrid, blockGrid, counterGrid, fireGrid, firewoodGrid, logPileGrid, patronGrid, PATRONS, stoolGrid, strangerGrid, tableGrid } from '../sprites/bar';
 import { staticGround, windFrames, type Px } from './ground';
 import { MAP_H, MAP_W } from './map';
 
@@ -48,6 +49,18 @@ export const ownerOwPicture = (dir: Dir, frame: number, s: number) => gridPictur
 export const helperOwPicture = (hop: number, look: number, flip: boolean, s: number) =>
   gridPicture(`ow-helper-${hop}-${look}-${flip ? 1 : 0}`, () => helperOverworld(hop, look, flip), s);
 export const smokePicture = (frame: number, s: number) => gridPicture(`ow-smoke-${frame}`, () => smokeGrid(frame), s);
+// The bar (sprites/bar.ts) and Barley's woodyard out back.
+export const counterPicture = (s: number) => gridPicture('bar-counter', counterGrid, s);
+export const stoolPicture = (s: number) => gridPicture('bar-stool', stoolGrid, s);
+export const tablePicture = (small: boolean, s: number) => gridPicture(`bar-table-${small ? 1 : 0}`, () => tableGrid(small), s);
+export const firePicture = (frame: number, low: boolean, s: number) => gridPicture(`bar-fire-${frame}-${low ? 1 : 0}`, () => fireGrid(frame, low), s);
+export const bartenderPicture = (frame: number, s: number) => gridPicture(`bar-barley-${frame}`, () => bartenderGrid(frame), s);
+export const patronPicture = (i: number, faceRight: boolean, frame: number, s: number) =>
+  gridPicture(`bar-patron-${i}-${faceRight ? 1 : 0}-${frame}`, () => patronGrid(PATRONS[i], faceRight, frame), s);
+export const strangerPicture = (frame: number, s: number) => gridPicture(`bar-stranger-${frame}`, () => strangerGrid(frame), s);
+export const blockPicture = (state: 'empty' | 'log' | 'split', s: number) => gridPicture(`ow-block-${state}`, () => blockGrid(state), s);
+export const logPilePicture = (n: number, s: number) => gridPicture(`ow-logpile-${n}`, () => logPileGrid(n), s);
+export const firewoodStackPicture = (n: number, s: number) => gridPicture(`ow-firewood-${n}`, () => firewoodGrid(n), s);
 // Dizzy stars circling a boar's head after it charges past you, 14 x 6, in three turns.
 export const dizzyPicture = (frame: number, s: number) =>
   gridPicture(
