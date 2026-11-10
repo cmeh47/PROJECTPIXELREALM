@@ -4,7 +4,9 @@ import { Grid, PAL, seg } from './pixel';
 // base, battle, portraits, the creator's preview) is drawn from one of these.
 export type HeroClass = 'warrior' | 'mage';
 export type HeroSex = 'male' | 'female';
-export type HeroLook = { cls: HeroClass; sex: HeroSex; skin: number; hair: number; hairColor: number };
+// eyes and outfit are optional so looks written before they existed (saved heroes, townsfolk) still
+// draw as they always did: ink eyes, and the class's own cloth color.
+export type HeroLook = { cls: HeroClass; sex: HeroSex; skin: number; hair: number; hairColor: number; eyes?: number; outfit?: number };
 
 export const DEFAULT_LOOK: HeroLook = { cls: 'warrior', sex: 'male', skin: 1, hair: 0, hairColor: 0 };
 
@@ -27,9 +29,50 @@ export const HAIR_COLORS: { name: string; swap: Record<string, string> }[] = [
 
 export const HAIR_STYLES = ['Crop', 'Spiky', 'Long', 'Braid'] as const;
 
-export function lookSwap(look: HeroLook): Record<string, string> {
-  return { ...SKIN_TONES[look.skin]?.swap, ...HAIR_COLORS[look.hairColor]?.swap };
+// Eye colors: the iris pixels (i in the face maps). The pupil stays ink and the shine white, so
+// every color still reads on every skin tone.
+export const EYE_COLORS: { name: string; key: string }[] = [
+  { name: 'Ink', key: 'K' },
+  { name: 'Hazel', key: 'W' },
+  { name: 'Sky', key: 'G' },
+  { name: 'Moss', key: 'm' },
+  { name: 'Violet', key: 'D' },
+  { name: 'Amber', key: 'b' },
+];
+
+// Cloth dyes for the class outfit: the warrior's gambeson, or the mage's robe and hat. Leather,
+// steel and boots keep their own colors. Each class starts in its own dye.
+export const OUTFIT_COLORS: { name: string; main: string; shade: string }[] = [
+  { name: 'Sky', main: 'Y', shade: 'G' },
+  { name: 'Lavender', main: 'L', shade: 'D' },
+  { name: 'Mint', main: 'M', shade: 'm' },
+  { name: 'Rose', main: 'R', shade: 'r' },
+  { name: 'Butter', main: 'B', shade: 'b' },
+  { name: 'Forest', main: 'f', shade: 'F' },
+];
+export const CLASS_OUTFIT: Record<HeroClass, number> = { warrior: 0, mage: 1 };
+export const outfitOf = (look: HeroLook) => OUTFIT_COLORS[look.outfit ?? CLASS_OUTFIT[look.cls]] ?? OUTFIT_COLORS[CLASS_OUTFIT[look.cls]];
+
+// The outfit maps are drawn in each class's own dye (sky for the warrior, lavender for the mage);
+// another dye swaps those two keys. A butter robe trades its butter sash for a lavender one.
+function outfitSwap(look: HeroLook): Record<string, string> {
+  const dye = outfitOf(look);
+  if (look.cls === 'warrior') return { Y: dye.main, G: dye.shade };
+  const sash = dye.main === 'B' ? { B: 'L', b: 'D' } : null;
+  return { L: dye.main, D: dye.shade, ...sash };
 }
+
+export function lookSwap(look: HeroLook): Record<string, string> {
+  return {
+    ...SKIN_TONES[look.skin]?.swap,
+    ...HAIR_COLORS[look.hairColor]?.swap,
+    ...outfitSwap(look),
+    i: (EYE_COLORS[look.eyes ?? 0] ?? EYE_COLORS[0]).key,
+  };
+}
+
+// One string per distinct look, for sprite cache keys.
+export const lookKey = (l: HeroLook) => `${l.cls}-${l.sex}-${l.skin}-${l.hair}-${l.hairColor}-${l.eyes ?? 0}-${l.outfit ?? CLASS_OUTFIT[l.cls]}`;
 
 // ---------------------------------------------------------------------------------------------
 // Overworld (base map). 18 x 30 frame: 14-wide body maps stamped at x = 2, head top on row 10 so a
@@ -82,18 +125,18 @@ const SKIN: Record<OwDir, string[]> = {
   ],
 };
 
-// Faces from row 5: two-by-two eyes with a white shine (so they read on every skin tone) and
-// rosy cheeks. Female faces add a lash flicking out from each eye and wider blush.
+// Faces from row 5: two-by-two eyes with a white shine and an ink pupil (so they read on every
+// skin tone), the other two pixels in the hero's eye color (i), and rosy cheeks. Female faces add a lash flicking out from each eye and wider blush.
 const FACES: Record<HeroSex, Record<OwDir, string[] | null>> = {
   male: {
-    down: ['..............', '...HK....HK...', '...KK....KK...', '..k........k..'],
+    down: ['..............', '...Hi....Hi...', '...iK....iK...', '..k........k..'],
     up: null,
-    right: ['..............', '.........HK...', '.........KK...', '..........k...'],
+    right: ['..............', '.........Hi...', '.........iK...', '..........k...'],
   },
   female: {
-    down: ['..K........K..', '...HK....HK...', '...KK....KK...', '..kk......kk..'],
+    down: ['..K........K..', '...Hi....Hi...', '...iK....iK...', '..kk......kk..'],
     up: null,
-    right: ['...........K..', '.........HK...', '.........KK...', '.........kk...'],
+    right: ['...........K..', '.........Hi...', '.........iK...', '.........kk...'],
   },
 };
 
@@ -611,7 +654,7 @@ export function heroBattle(look: HeroLook, p: BattlePose) {
     tip = at(12);
   }
   if (behind) stampHead(g, look, 'right', bx - 7 + lean, ty - 10);
-  seg(g, sx, sy, hx, hy, mage ? PAL.L : PAL.Y, 2);
+  seg(g, sx, sy, hx, hy, PAL[outfitOf(look).main], 2);
   const skin = PAL[sw.S];
   g.set(hx, hy, skin);
   g.set(hx + 1, hy, skin);

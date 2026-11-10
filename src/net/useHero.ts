@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { HeroClass, HeroLook, HeroSex } from '../sprites/hero';
+import { CLASS_OUTFIT, type HeroClass, type HeroLook, type HeroSex } from '../sprites/hero';
 import { ensureSignedIn, supabase } from './supabase';
 
 // The player's hero: their name and look (supabase/migrations/*_heroes.sql).
@@ -12,10 +12,29 @@ export type Hero = { name: string; look: HeroLook };
 // hero (retry asks again; playOffline makes and keeps the hero on this device only).
 export type HeroStatus = 'loading' | 'none' | 'ready' | 'error';
 
-type Raw = { name: string; class: HeroClass; sex: HeroSex; skin: number; hair: number; hair_color: number };
+// eye_color and outfit_color came later (the *_hero_eyes_outfit.sql migration): a server that
+// hasn't had it yet leaves them out, and the hero then has ink eyes and the class's own colors.
+type Raw = { name: string; class: HeroClass; sex: HeroSex; skin: number; hair: number; hair_color: number; eye_color?: number; outfit_color?: number };
 
-const fromRaw = (r: Raw): Hero => ({ name: r.name, look: { cls: r.class, sex: r.sex, skin: r.skin, hair: r.hair, hairColor: r.hair_color } });
-const toRaw = (h: Hero): Raw => ({ name: h.name, class: h.look.cls, sex: h.look.sex, skin: h.look.skin, hair: h.look.hair, hair_color: h.look.hairColor });
+const fromRaw = (r: Raw): Hero => ({
+  name: r.name,
+  look: { cls: r.class, sex: r.sex, skin: r.skin, hair: r.hair, hairColor: r.hair_color, eyes: r.eye_color ?? 0, outfit: r.outfit_color ?? CLASS_OUTFIT[r.class] },
+});
+const toRaw = (h: Hero): Required<Raw> => ({
+  name: h.name,
+  class: h.look.cls,
+  sex: h.look.sex,
+  skin: h.look.skin,
+  hair: h.look.hair,
+  hair_color: h.look.hairColor,
+  eye_color: h.look.eyes ?? 0,
+  outfit_color: h.look.outfit ?? CLASS_OUTFIT[h.look.cls],
+});
+
+// EXPO_PUBLIC_PREVIEW_CREATION=1 in .env opens character creation on every launch, for trying the
+// screens on a device that already has a hero. The hero made lasts until the app closes and is
+// never saved, so the real one is untouched.
+const PREVIEW = process.env.EXPO_PUBLIC_PREVIEW_CREATION === '1';
 
 // A copy of the hero on this device: the only copy without a Supabase project, and a fallback when
 // the server can't be reached (the server's copy wins whenever it answers).
@@ -39,6 +58,10 @@ export function useHero() {
 
   useEffect(() => {
     let live = true;
+    if (PREVIEW) {
+      setStatus('none');
+      return;
+    }
     (async () => {
       let raw: Raw | null;
       if (supabase && !offline) {
@@ -47,7 +70,12 @@ export function useHero() {
           const { data, error } = await supabase.rpc('get_hero');
           if (error) throw error;
           raw = data as Raw | null;
-          if (raw) writeLocal(raw);
+          if (raw) {
+            // Until the server stores eyes and clothes, this device's copy remembers them.
+            const mine = await readLocal();
+            if (mine && mine.name === raw.name) raw = { eye_color: mine.eye_color, outfit_color: mine.outfit_color, ...raw };
+            writeLocal(raw);
+          }
         } catch (e) {
           console.warn('Loading the hero failed', e);
           raw = await readLocal();
@@ -81,10 +109,22 @@ export function useHero() {
   // Makes the hero on the server, which checks the name and every choice. Throws the server's
   // message if it refuses, so the creation screen can show it.
   const create = useCallback(async (h: Hero) => {
-    let raw = toRaw(h);
+    let raw: Raw = toRaw(h);
+    if (PREVIEW) {
+      setHero(fromRaw(raw));
+      setStatus('ready');
+      return fromRaw(raw);
+    }
     if (supabase && !offline) {
       await ensureSignedIn(supabase);
-      const { data, error } = await supabase.rpc('create_hero', raw);
+      let { data, error } = await supabase.rpc('create_hero', raw);
+      if (error?.code === 'PGRST202') {
+        // The server is still on the first create_hero (no eyes or clothes): make the hero with
+        // what it knows and keep the rest on this device.
+        const { eye_color, outfit_color, ...first } = toRaw(h);
+        ({ data, error } = await supabase.rpc('create_hero', first));
+        if (data) data = { eye_color, outfit_color, ...(data as Raw) };
+      }
       if (error) throw new Error(error.message);
       raw = data as Raw;
     }

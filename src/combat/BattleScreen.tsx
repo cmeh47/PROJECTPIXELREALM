@@ -6,7 +6,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withSequence, withT
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { foePortrait, type FoePose, type HeroPose } from '../sprites/characters';
-import { DEFAULT_LOOK, heroBattle, heroFace, PARTY_LOOKS, type HeroClass, type HeroLook } from '../sprites/hero';
+import { DEFAULT_LOOK, heroBattle, heroFace, lookKey, PARTY_LOOKS, type HeroClass, type HeroLook } from '../sprites/hero';
 import type { Hero } from '../net/useHero';
 import { merchantFace } from '../sprites/merchant';
 import { fxPicture, gridPicture } from '../sprites/render';
@@ -1715,7 +1715,7 @@ function TargetMarker({ field, slot, beat }: { field: Field; slot: { x: number; 
 }
 
 function HeadSprite({ look, small, npc }: { look: HeroLook; small?: boolean; npc?: 'merchant' }) {
-  const key = npc ?? `${look.cls}-${look.sex}-${look.skin}-${look.hair}-${look.hairColor}`;
+  const key = npc ?? lookKey(look);
   const pic = useMemo(() => gridPicture(`heroface-${key}`, npc ? merchantFace : () => heroFace(look), 2), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <View style={[st.portrait, { width: small ? 34 : 38, height: small ? 28 : 32 }]}>
