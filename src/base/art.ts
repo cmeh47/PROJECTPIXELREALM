@@ -3,7 +3,7 @@ import { Skia, type SkImage } from '@shopify/react-native-skia';
 import { bubbleGrid, heartGrid, houseGrid, hammerGrid, hutRuinsGrid, leafGrid, logGrid, oldManOverworld, shackGrid, stumpGrid, toadOverworld, treeGrid, type Dir, type TreeKind } from '../sprites/overworld';
 import { bagGrid, boarOverworld, coinGrid, meatGrid, signGrid } from '../sprites/boar';
 import { Grid, PAL, star } from '../sprites/pixel';
-import { heroOw, type HeroLook } from '../sprites/hero';
+import { heroOw, lookKey, type HeroLook } from '../sprites/hero';
 import { merchantOverworld, standGrid } from '../sprites/merchant';
 import { gridPicture } from '../sprites/render';
 import { staticGround, windFrames, type Px } from './ground';
@@ -12,7 +12,7 @@ import { MAP_H, MAP_W } from './map';
 // Skia pictures for the base map's sprites, cached per scale, and baked images for its ground.
 
 export const heroOwPicture = (dir: Dir, frame: number, look: HeroLook, s: number) =>
-  gridPicture(`ow-hero-${dir}-${frame}-${look.cls}-${look.sex}-${look.skin}-${look.hair}-${look.hairColor}`, () => heroOw(look, dir, frame), s);
+  gridPicture(`ow-hero-${dir}-${frame}-${lookKey(look)}`, () => heroOw(look, dir, frame), s);
 export const toadOwPicture = (hop: number, look: number, flip: boolean, s: number) =>
   gridPicture(`ow-toad-${hop}-${look}-${flip ? 1 : 0}`, () => toadOverworld(hop, look, flip), s);
 export const treePicture = (variant: number, flash: boolean, s: number) =>

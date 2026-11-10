@@ -29,6 +29,7 @@ Milestone 1 is the combat-feel prototype: one battle in `src/combat/`. The playe
 - Keep secrets out of the repo. Use a git-ignored `.env` and document required variables here.
   - `EXPO_PUBLIC_SUPABASE_URL`: the project's API URL (`https://<ref>.supabase.co`).
   - `EXPO_PUBLIC_SUPABASE_ANON_KEY`: the publishable (anon) key. It ships inside the app by design. Never put the service role key in the app or the repo.
+  - `EXPO_PUBLIC_PREVIEW_CREATION=1` (optional): opens character creation on every launch without saving the hero, for trying the screens on a device that already has one.
   - Copy `.env.example` to `.env`. Without these the game runs offline and nothing is saved.
 
 ## Commands
@@ -47,8 +48,8 @@ If `npx expo install` fails behind a proxy, prefix it with `EXPO_OFFLINE=1`.
 ## Code map
 
 - `App.tsx` loads fonts and gesture/safe-area roots, then shows character creation on first launch (no hero yet) or the base. `src/boot/index.web.ts` loads CanvasKit before mounting on web; `src/boot/index.ts` is the phone entry.
-- `src/sprites/`: pixel grid, character layers (Mossback Toadstool, the butcher), `boar.ts` (the boar in battle and on the map, meat, bag, coin and woods sign) and Skia picture rendering. `hero.ts` draws the player's hero from a `HeroLook` (class, sex, skin, hairstyle, hair color): base-map sprite, posable battle sprite, HUD face, plus class stats and the demo party's looks.
-- `src/create/CharacterCreation.tsx`: the first-launch screen (live preview, stat bars, choices, name).
+- `src/sprites/`: pixel grid, character layers (Mossback Toadstool, the butcher), `boar.ts` (the boar in battle and on the map, meat, bag, coin and woods sign) and Skia picture rendering. `hero.ts` draws the player's hero from a `HeroLook` (class, sex, skin, hairstyle, hair color, eye color, clothing dye): base-map sprite, posable battle sprite, HUD face, plus class stats and the demo party's looks.
+- `src/create/`: `CharacterCreation.tsx` (first launch, two steps: full-screen class cards swiped left for the next class or right to pick, then name, hair, skin, eyes and clothing color), `scenes.ts` (each class's backdrop as plain pixels, no Skia).
 - `src/combat/`: `rules.ts` (numbers), `anims.ts` (12 fps frame tables), `useCombatInput.ts` (UI-thread timing), `BattleScene.tsx` (Skia canvas), `BattleScreen.tsx` (the battle and menus).
 - `src/net/`: `supabase.ts` (client, guest sign-in), `useHero.ts` (loads or creates the hero, keeps a copy on the device for offline play), `useBaseSave.ts` (loads the base, sends each change to a server function in order, applies the server's copy). Server side: `supabase/migrations/` (the `bases` and `heroes` tables, read-only to players, and the functions that change them).
 - `src/ui/pixel.tsx`: framed panels, pixel buttons, bars, chips and icons.
